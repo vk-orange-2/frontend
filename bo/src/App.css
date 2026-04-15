@@ -241,6 +241,19 @@
   color: #16a34a;
 }
 
+.pill--other {
+  background: rgba(148, 163, 184, 0.2);
+  color: #64748b;
+}
+
+.cell-value {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
 @media (prefers-color-scheme: dark) {
   .pill--dev {
     color: #93c5fd;
@@ -252,5 +265,9 @@
 
   .pill--prod {
     color: #86efac;
+  }
+
+  .pill--other {
+    color: #94a3b8;
   }
 }

@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useLocation, useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 import { fetchServiceConfigs } from '../api/client'
-import type { BaseConfig, ConfigListResponse } from '../api/types'
-
-type LocationState = { serviceName?: string; namespace?: string } | null
+import type { ConfigItem, ConfigListResponse } from '../api/types'
 
 const envLabels: Record<string, string> = {
   dev: 'dev',
@@ -11,24 +9,35 @@ const envLabels: Record<string, string> = {
   prod: 'prod',
 }
 
+function pillModifier(env: string): string {
+  if (env === 'dev' || env === 'stage' || env === 'prod') return env
+  return 'other'
+}
+
+function previewValue(value: string, max = 72): string {
+  if (value.length <= max) return value
+  return `${value.slice(0, max)}…`
+}
+
 export function ServiceConfigsPage() {
-  const { serviceId } = useParams<{ serviceId: string }>()
-  const location = useLocation()
-  const state = location.state as LocationState
+  const { serviceName: serviceNameParam } = useParams<{ serviceName: string }>()
+  const serviceName = serviceNameParam ? decodeURIComponent(serviceNameParam) : ''
 
   const [data, setData] = useState<ConfigListResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
-  const title = state?.serviceName ?? 'Сервис'
-  const namespace = state?.namespace
-
-  const id = serviceId ?? ''
-
   useEffect(() => {
-    if (!id) return
+    if (!serviceName) {
+      setLoading(false)
+      setData(null)
+      setError(null)
+      return
+    }
     let cancelled = false
-    fetchServiceConfigs(id)
+    setLoading(true)
+    setError(null)
+    fetchServiceConfigs(serviceName)
       .then((res) => {
         if (!cancelled) setData(res)
       })
@@ -44,75 +53,85 @@ export function ServiceConfigsPage() {
     return () => {
       cancelled = true
     }
-  }, [id])
+  }, [serviceName])
 
   const rows = useMemo(() => data?.items ?? [], [data])
+
+  const queryExample = useMemo(() => {
+    const base = 'GET /v1/configs?serviceName=…&environment=…'
+    if (!serviceName) return base
+    return `GET /v1/configs?serviceName=${encodeURIComponent(serviceName)}&environment=dev|stage|prod`
+  }, [serviceName])
 
   return (
     <div className="page">
       <nav className="breadcrumb">
         <Link to="/">Сервисы</Link>
         <span aria-hidden="true"> / </span>
-        <span>{title}</span>
+        <span>{serviceName || '…'}</span>
       </nav>
 
       <header className="page-head">
         <div>
           <h1>Конфигурации</h1>
           <p className="page-sub">
-            <code>/v1/services/{id || '…'}/configs</code>
-            {namespace ? (
-              <>
-                {' '}
-                · <span className="badge badge--inline">{namespace}</span>
-              </>
-            ) : null}
+            <code>{queryExample}</code>
           </p>
         </div>
       </header>
 
-      {loading && <p className="muted">Загрузка…</p>}
-      {error && <p className="error-banner">{error}</p>}
-
-      {!loading && !error && data && rows.length > 0 && (
-        <div className="table-wrap">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Ключ</th>
-                <th>Среда</th>
-                <th>Тип</th>
-                <th>Формат</th>
-                <th>Версия</th>
-                <th>Статус</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((c: BaseConfig) => (
-                <tr key={c.id}>
-                  <td className="mono">{c.configKey}</td>
-                  <td>
-                    <span className={`pill pill--${c.environment}`}>
-                      {envLabels[c.environment] ?? c.environment}
-                    </span>
-                  </td>
-                  <td>{c.configType}</td>
-                  <td>{c.format}</td>
-                  <td className="mono">{c.currentVersion}</td>
-                  <td>{c.status}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <p className="table-foot muted">
-            Показано {rows.length} из {data.pagination.total}
-          </p>
-        </div>
+      {!serviceName && !loading && (
+        <p className="muted">Сервис не указан в адресе страницы.</p>
       )}
 
-      {!loading && !error && rows.length === 0 && (
-        <p className="muted">Для этого сервиса конфигураций нет.</p>
-      )}
+      {serviceName ? (
+        <>
+          {loading && <p className="muted">Загрузка…</p>}
+          {error && <p className="error-banner">{error}</p>}
+
+          {!loading && !error && data && rows.length > 0 && (
+            <div className="table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Ключ</th>
+                    <th>Среда</th>
+                    <th>Значение</th>
+                    <th>Версия</th>
+                    <th>Создан</th>
+                    <th>Обновлён</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((c: ConfigItem) => (
+                    <tr key={c.id}>
+                      <td className="mono">{c.key}</td>
+                      <td>
+                        <span className={`pill pill--${pillModifier(c.env)}`}>
+                          {envLabels[c.env] ?? c.env}
+                        </span>
+                      </td>
+                      <td className="mono cell-value" title={c.value}>
+                        {previewValue(c.value)}
+                      </td>
+                      <td className="mono">{c.version}</td>
+                      <td className="mono">{c.createdAt}</td>
+                      <td className="mono">{c.updatedAt}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="table-foot muted">
+                Показано {rows.length} из {data.pagination.total}
+              </p>
+            </div>
+          )}
+
+          {!loading && !error && rows.length === 0 && (
+            <p className="muted">Для этого сервиса конфигураций нет.</p>
+          )}
+        </>
+      ) : null}
     </div>
   )
 }

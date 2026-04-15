@@ -1,129 +1,94 @@
-import type { ConfigListResponse, ServiceListResponse } from './types'
-
-const S1 = '3fa85f64-5717-4562-b3fc-2c963f66afa6'
-const S2 = '7c9e6679-7425-40de-944b-e07fc1f90ae7'
-const S3 = 'a3bb189e-8bf9-3888-9912-ace7e8693000'
+import type { ConfigItem, ConfigListResponse, ServiceListResponse } from './types'
 
 const now = '2026-04-12T10:00:00.000Z'
 
-export const mockServiceList: ServiceListResponse = {
-  items: [
-    {
-      id: S1,
-      name: 'checkout-api',
-      namespace: 'payments',
-      description: 'Платёжный шлюз и корзина',
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: S2,
-      name: 'notifications',
-      namespace: 'platform',
-      description: null,
-      createdAt: now,
-      updatedAt: now,
-    },
-    {
-      id: S3,
-      name: 'search-indexer',
-      namespace: 'discovery',
-      description: 'Индексация каталога',
-      createdAt: now,
-      updatedAt: now,
-    },
-  ],
-  pagination: { page: 1, pageSize: 50, total: 3 },
-}
-
-const cfg = (
+const row = (
   id: string,
-  serviceId: string,
+  service: string,
+  env: string,
   key: string,
-  env: 'dev' | 'stage' | 'prod',
-  type: 'config' | 'secret',
-  format: 'kv' | 'json' | 'yaml',
+  value: string,
   version: number,
-): ConfigListResponse['items'][number] => ({
+): ConfigItem => ({
   id,
-  serviceId,
-  environment: env,
-  configKey: key,
-  configType: type,
-  format,
-  status: 'active',
-  currentVersion: version,
-  createdBy: 'admin@example.com',
+  service,
+  env,
+  key,
+  value,
+  version,
   createdAt: now,
   updatedAt: now,
 })
 
-export function mockConfigsForService(serviceId: string): ConfigListResponse {
+export const mockServiceList: ServiceListResponse = {
+  items: [
+    { name: 'checkout-api' },
+    { name: 'notifications' },
+    { name: 'search-indexer' },
+  ],
+  pagination: { page: 1, pageSize: 50, total: 3 },
+}
+
+export function mockConfigsForService(serviceName: string): ConfigListResponse {
   const byService: Record<string, ConfigListResponse> = {
-    [S1]: {
+    'checkout-api': {
       items: [
-        cfg(
+        row(
           '11111111-1111-4111-8111-111111111111',
-          S1,
-          'feature_flags',
+          'checkout-api',
           'prod',
-          'config',
-          'json',
+          'feature_flags',
+          '{"x":true}',
           12,
         ),
-        cfg(
+        row(
           '22222222-2222-4222-8222-222222222222',
-          S1,
-          'stripe_webhook_secret',
+          'checkout-api',
           'prod',
-          'secret',
-          'kv',
+          'stripe_webhook_secret',
+          '***',
           3,
         ),
-        cfg(
+        row(
           '33333333-3333-4333-8333-333333333333',
-          S1,
-          'timeouts',
+          'checkout-api',
           'stage',
-          'config',
-          'yaml',
+          'timeouts',
+          'connect: 5s',
           7,
         ),
       ],
       pagination: { page: 1, pageSize: 50, total: 3 },
     },
-    [S2]: {
+    notifications: {
       items: [
-        cfg(
+        row(
           '44444444-4444-4444-8444-444444444444',
-          S2,
-          'smtp',
+          'notifications',
           'dev',
-          'config',
-          'kv',
+          'smtp',
+          'host=localhost',
           1,
         ),
       ],
       pagination: { page: 1, pageSize: 50, total: 1 },
     },
-    [S3]: {
+    'search-indexer': {
       items: [
-        cfg(
+        row(
           '55555555-5555-4555-8555-555555555555',
-          S3,
-          'indexer_batch',
+          'search-indexer',
           'prod',
-          'config',
-          'json',
+          'indexer_batch',
+          '{"batch":100}',
           24,
         ),
-        cfg(
+        row(
           '66666666-6666-4666-8666-666666666666',
-          S3,
-          'opensearch_password',
+          'search-indexer',
           'prod',
-          'secret',
-          'kv',
+          'opensearch_password',
+          '***',
           2,
         ),
       ],
@@ -131,7 +96,7 @@ export function mockConfigsForService(serviceId: string): ConfigListResponse {
     },
   }
 
-  const found = byService[serviceId]
+  const found = byService[serviceName]
   if (found) return found
 
   return {

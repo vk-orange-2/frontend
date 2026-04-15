@@ -32,7 +32,7 @@ export function HomePage() {
         <div>
           <h1>Сервисы</h1>
           <p className="page-sub">
-            Данные с эндпоинта <code>/v1/services</code>
+            Данные с эндпоинта <code>GET /v1/services</code>
           </p>
         </div>
       </header>
@@ -40,26 +40,19 @@ export function HomePage() {
       {loading && <p className="muted">Загрузка…</p>}
       {error && <p className="error-banner">{error}</p>}
 
-      {!loading && !error && data && (
+      {!loading && !error && data && data.items.length > 0 && (
         <ul className="card-list">
           {data.items.map((s: Service) => (
-            <li key={s.id}>
+            <li key={s.name}>
               <Link
                 className="service-card"
-                to={`/services/${s.id}/configs`}
-                state={{ serviceName: s.name, namespace: s.namespace }}
+                to={`/services/${encodeURIComponent(s.name)}/configs`}
               >
                 <div className="service-card__top">
                   <span className="service-card__name">{s.name}</span>
-                  <span className="badge">{s.namespace}</span>
                 </div>
-                {s.description ? (
-                  <p className="service-card__desc">{s.description}</p>
-                ) : (
-                  <p className="service-card__desc muted">Без описания</p>
-                )}
+                <p className="service-card__desc muted">Конфигурации по имени сервиса</p>
                 <footer className="service-card__meta">
-                  <span>id: {s.id}</span>
                   <span className="service-card__cta">Конфиги →</span>
                 </footer>
               </Link>

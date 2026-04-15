@@ -4,8 +4,8 @@ import { ServiceConfigsPage } from './pages/ServiceConfigsPage'
 import './App.css'
 
 function ServiceConfigsRoute() {
-  const { serviceId } = useParams()
-  return <ServiceConfigsPage key={serviceId} />
+  const { serviceName } = useParams()
+  return <ServiceConfigsPage key={serviceName} />
 }
 
 export default function App() {
@@ -21,7 +21,7 @@ export default function App() {
         <main className="app-main">
           <Routes>
             <Route path="/" element={<HomePage />} />
-            <Route path="/services/:serviceId/configs" element={<ServiceConfigsRoute />} />
+            <Route path="/services/:serviceName/configs" element={<ServiceConfigsRoute />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>
