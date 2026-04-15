@@ -47,6 +47,42 @@
   letter-spacing: -0.04em;
 }
 
+.page-head--split {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px 24px;
+}
+
+.env-filter {
+  text-align: left;
+}
+
+.env-filter-label {
+  display: block;
+  font-size: 0.85rem;
+  margin-bottom: 6px;
+  color: var(--text);
+}
+
+.env-filter-select {
+  font: inherit;
+  font-size: 0.95rem;
+  padding: 8px 12px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-h);
+  min-width: 11rem;
+  cursor: pointer;
+}
+
+.env-filter-select:focus {
+  outline: 2px solid var(--accent-border);
+  outline-offset: 1px;
+}
+
 .page-sub {
   margin: 0;
   color: var(--text);

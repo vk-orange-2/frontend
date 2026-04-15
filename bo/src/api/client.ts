@@ -11,7 +11,7 @@ const API_BASE = (
 /** Моки только при `VITE_API_MOCK=true`; иначе — реальный бэкенд. */
 const USE_MOCK = import.meta.env.VITE_API_MOCK === 'true'
 
-const CONFIG_ENVIRONMENTS = ['dev', 'stage', 'prod'] as const
+const CONFIG_ENVIRONMENTS = ['dev', 'prod'] as const
 
 function buildUrl(path: string): string {
   const p = path.startsWith('/') ? path : `/${path}`

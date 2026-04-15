@@ -3,6 +3,8 @@ import { Link, useParams } from 'react-router-dom'
 import { fetchServiceConfigs } from '../api/client'
 import type { ConfigItem, ConfigListResponse } from '../api/types'
 
+type EnvFilterChoice = 'dev' | 'prod'
+
 const envLabels: Record<string, string> = {
   dev: 'dev',
   stage: 'stage',
@@ -26,6 +28,7 @@ export function ServiceConfigsPage() {
   const [data, setData] = useState<ConfigListResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [envFilter, setEnvFilter] = useState<EnvFilterChoice | null>(null)
 
   useEffect(() => {
     if (!serviceName) {
@@ -55,7 +58,14 @@ export function ServiceConfigsPage() {
     }
   }, [serviceName])
 
-  const rows = useMemo(() => data?.items ?? [], [data])
+  const allRows = useMemo(() => data?.items ?? [], [data])
+  const displayRows = useMemo(
+    () =>
+      envFilter === null
+        ? allRows
+        : allRows.filter((c: ConfigItem) => c.env === envFilter),
+    [allRows, envFilter],
+  )
 
   const queryExample = useMemo(() => {
     const base = 'GET /v1/configs?serviceName=…&environment=…'
@@ -71,13 +81,33 @@ export function ServiceConfigsPage() {
         <span>{serviceName || '…'}</span>
       </nav>
 
-      <header className="page-head">
+      <header className="page-head page-head--split">
         <div>
           <h1>Конфигурации</h1>
           <p className="page-sub">
             <code>{queryExample}</code>
           </p>
         </div>
+        {serviceName ? (
+          <div className="env-filter">
+            <label className="env-filter-label" htmlFor="service-config-env">
+              Среда
+            </label>
+            <select
+              id="service-config-env"
+              className="env-filter-select"
+              value={envFilter ?? ''}
+              onChange={(e) => {
+                const v = e.target.value
+                setEnvFilter(v === '' ? null : (v as EnvFilterChoice))
+              }}
+            >
+              <option value="">Все среды</option>
+              <option value="dev">dev</option>
+              <option value="prod">prod</option>
+            </select>
+          </div>
+        ) : null}
       </header>
 
       {!serviceName && !loading && (
@@ -89,7 +119,7 @@ export function ServiceConfigsPage() {
           {loading && <p className="muted">Загрузка…</p>}
           {error && <p className="error-banner">{error}</p>}
 
-          {!loading && !error && data && rows.length > 0 && (
+          {!loading && !error && data && displayRows.length > 0 && (
             <div className="table-wrap">
               <table className="data-table">
                 <thead>
@@ -103,7 +133,7 @@ export function ServiceConfigsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((c: ConfigItem) => (
+                  {displayRows.map((c: ConfigItem) => (
                     <tr key={c.id}>
                       <td className="mono">{c.key}</td>
                       <td>
@@ -122,13 +152,17 @@ export function ServiceConfigsPage() {
                 </tbody>
               </table>
               <p className="table-foot muted">
-                Показано {rows.length} из {data.pagination.total}
+                Показано {displayRows.length} из {allRows.length}
               </p>
             </div>
           )}
 
-          {!loading && !error && rows.length === 0 && (
+          {!loading && !error && data && allRows.length === 0 && (
             <p className="muted">Для этого сервиса конфигураций нет.</p>
+          )}
+
+          {!loading && !error && data && allRows.length > 0 && displayRows.length === 0 && (
+            <p className="muted">Для выбранной среды конфигураций нет.</p>
           )}
         </>
       ) : null}
