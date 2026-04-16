@@ -1,5 +1,9 @@
 import { BrowserRouter, Link, Navigate, Route, Routes, useParams } from 'react-router-dom'
 import { HomePage } from './pages/HomePage'
+import {
+  ServiceConfigCreatePage,
+  ServiceConfigEditPage,
+} from './pages/ServiceConfigEditorPages'
 import { ServiceConfigsPage } from './pages/ServiceConfigsPage'
 import './App.css'
 
@@ -14,13 +18,17 @@ export default function App() {
       <div className="app-shell">
         <header className="app-header">
           <Link to="/" className="app-brand">
-            Orange BO
+            Сервис конфигураций
           </Link>
-          <span className="app-tag">конфигурации</span>
         </header>
         <main className="app-main">
           <Routes>
             <Route path="/" element={<HomePage />} />
+            <Route path="/services/:serviceName/configs/new" element={<ServiceConfigCreatePage />} />
+            <Route
+              path="/services/:serviceName/configs/:environment/edit/:configKey"
+              element={<ServiceConfigEditPage />}
+            />
             <Route path="/services/:serviceName/configs" element={<ServiceConfigsRoute />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

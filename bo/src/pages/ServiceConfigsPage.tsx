@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { fetchServiceConfigs } from '../api/client'
-import type { ConfigItem, ConfigListResponse } from '../api/types'
+import type { ServiceConfigRow } from '../api/types'
+import { editConfigPath } from './ServiceConfigEditorPages'
 
-type EnvFilterChoice = 'dev' | 'prod'
+type EnvFilterChoice = 'dev' | 'stage' | 'prod'
 
 const envLabels: Record<string, string> = {
   dev: 'dev',
@@ -21,11 +22,21 @@ function previewValue(value: string, max = 72): string {
   return `${value.slice(0, max)}…`
 }
 
+function formatPayload(payload: unknown): string {
+  if (payload === null || payload === undefined) return ''
+  if (typeof payload === 'string') return payload
+  try {
+    return JSON.stringify(payload)
+  } catch {
+    return String(payload)
+  }
+}
+
 export function ServiceConfigsPage() {
   const { serviceName: serviceNameParam } = useParams<{ serviceName: string }>()
   const serviceName = serviceNameParam ? decodeURIComponent(serviceNameParam) : ''
 
-  const [data, setData] = useState<ConfigListResponse | null>(null)
+  const [rows, setRows] = useState<ServiceConfigRow[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [envFilter, setEnvFilter] = useState<EnvFilterChoice | null>(null)
@@ -33,7 +44,7 @@ export function ServiceConfigsPage() {
   useEffect(() => {
     if (!serviceName) {
       setLoading(false)
-      setData(null)
+      setRows(null)
       setError(null)
       return
     }
@@ -42,7 +53,7 @@ export function ServiceConfigsPage() {
     setError(null)
     fetchServiceConfigs(serviceName)
       .then((res) => {
-        if (!cancelled) setData(res)
+        if (!cancelled) setRows(res)
       })
       .catch((e: unknown) => {
         if (!cancelled)
@@ -58,20 +69,19 @@ export function ServiceConfigsPage() {
     }
   }, [serviceName])
 
-  const allRows = useMemo(() => data?.items ?? [], [data])
+  const allRows = useMemo(() => rows ?? [], [rows])
   const displayRows = useMemo(
     () =>
       envFilter === null
         ? allRows
-        : allRows.filter((c: ConfigItem) => c.env === envFilter),
+        : allRows.filter((c: ServiceConfigRow) => c.environment === envFilter),
     [allRows, envFilter],
   )
 
-  const queryExample = useMemo(() => {
-    const base = 'GET /v1/configs?serviceName=…&environment=…'
-    if (!serviceName) return base
-    return `GET /v1/configs?serviceName=${encodeURIComponent(serviceName)}&environment=dev|stage|prod`
-  }, [serviceName])
+  const totalRowsForSummary = useMemo(() => {
+    if (envFilter === null) return allRows.length
+    return allRows.filter((c: ServiceConfigRow) => c.environment === envFilter).length
+  }, [allRows, envFilter])
 
   return (
     <div className="page">
@@ -83,29 +93,35 @@ export function ServiceConfigsPage() {
 
       <header className="page-head page-head--split">
         <div>
-          <h1>Конфигурации</h1>
-          <p className="page-sub">
-            <code>{queryExample}</code>
-          </p>
+          <h1>Свойства</h1>
         </div>
         {serviceName ? (
-          <div className="env-filter">
-            <label className="env-filter-label" htmlFor="service-config-env">
-              Среда
-            </label>
-            <select
-              id="service-config-env"
-              className="env-filter-select"
-              value={envFilter ?? ''}
-              onChange={(e) => {
-                const v = e.target.value
-                setEnvFilter(v === '' ? null : (v as EnvFilterChoice))
-              }}
+          <div className="page-toolbar">
+            <div className="env-filter">
+              <label className="env-filter-label" htmlFor="service-config-env">
+                Окружение
+              </label>
+              <select
+                id="service-config-env"
+                className="env-filter-select"
+                value={envFilter ?? ''}
+                onChange={(e) => {
+                  const v = e.target.value
+                  setEnvFilter(v === '' ? null : (v as EnvFilterChoice))
+                }}
+              >
+                <option value="">Все окружения</option>
+                <option value="dev">dev</option>
+                <option value="stage">stage</option>
+                <option value="prod">prod</option>
+              </select>
+            </div>
+            <Link
+              className="btn btn--primary"
+              to={`/services/${encodeURIComponent(serviceName)}/configs/new`}
             >
-              <option value="">Все среды</option>
-              <option value="dev">dev</option>
-              <option value="prod">prod</option>
-            </select>
+              Создать свойство
+            </Link>
           </div>
         ) : null}
       </header>
@@ -119,49 +135,57 @@ export function ServiceConfigsPage() {
           {loading && <p className="muted">Загрузка…</p>}
           {error && <p className="error-banner">{error}</p>}
 
-          {!loading && !error && data && displayRows.length > 0 && (
+          {!loading && !error && rows && displayRows.length > 0 && (
             <div className="table-wrap">
               <table className="data-table">
                 <thead>
                   <tr>
                     <th>Ключ</th>
                     <th>Среда</th>
-                    <th>Значение</th>
+                    <th>Значение (payload)</th>
                     <th>Версия</th>
-                    <th>Создан</th>
-                    <th>Обновлён</th>
+                    <th className="data-table__actions-col">Действия</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {displayRows.map((c: ConfigItem) => (
-                    <tr key={c.id}>
-                      <td className="mono">{c.key}</td>
-                      <td>
-                        <span className={`pill pill--${pillModifier(c.env)}`}>
-                          {envLabels[c.env] ?? c.env}
-                        </span>
-                      </td>
-                      <td className="mono cell-value" title={c.value}>
-                        {previewValue(c.value)}
-                      </td>
-                      <td className="mono">{c.version}</td>
-                      <td className="mono">{c.createdAt}</td>
-                      <td className="mono">{c.updatedAt}</td>
-                    </tr>
-                  ))}
+                  {displayRows.map((c: ServiceConfigRow) => {
+                    const valueStr = formatPayload(c.latestVersion.payload)
+                    return (
+                      <tr key={`${c.environment}:${c.configKey}`}>
+                        <td className="mono">{c.configKey}</td>
+                        <td>
+                          <span className={`pill pill--${pillModifier(c.environment)}`}>
+                            {envLabels[c.environment] ?? c.environment}
+                          </span>
+                        </td>
+                        <td className="mono cell-value" title={valueStr}>
+                          {previewValue(valueStr)}
+                        </td>
+                        <td className="mono">{c.currentVersion}</td>
+                        <td className="data-table__actions">
+                          <Link
+                            className="btn btn--ghost btn--small"
+                            to={editConfigPath(serviceName, c.environment, c.configKey)}
+                          >
+                            Изменить
+                          </Link>
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
               <p className="table-foot muted">
-                Показано {displayRows.length} из {allRows.length}
+                Показано {displayRows.length} из {totalRowsForSummary}
               </p>
             </div>
           )}
 
-          {!loading && !error && data && allRows.length === 0 && (
+          {!loading && !error && rows && allRows.length === 0 && (
             <p className="muted">Для этого сервиса конфигураций нет.</p>
           )}
 
-          {!loading && !error && data && allRows.length > 0 && displayRows.length === 0 && (
+          {!loading && !error && rows && allRows.length > 0 && displayRows.length === 0 && (
             <p className="muted">Для выбранной среды конфигураций нет.</p>
           )}
         </>

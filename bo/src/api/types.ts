@@ -1,34 +1,42 @@
 /** Типы под REST config-server: GET /v1/services, GET /v1/configs */
 
-export interface Pagination {
-  page: number
-  pageSize: number
-  total: number
-}
-
-/** GET /v1/services — список имён сервисов. */
-export interface Service {
-  name: string
-}
-
-export interface ServiceListResponse {
-  items: Service[]
-  pagination: Pagination
-}
-
-/** Элемент из GET /v1/configs (JSON с бэкенда). */
-export interface ConfigItem {
+/** Элемент списка из GET /v1/services (ServiceResponse.java). */
+export interface ServiceResponse {
   id: string
+  name: string
+  description: string | null
+  createdAt: string
+}
+
+/** Вложенный объект в ConfigResponse.java. */
+export interface ConfigLatestVersion {
+  payload: unknown
+}
+
+/** Элемент массива configs в GET /v1/configs (ConfigResponse.java). */
+export interface ConfigResponse {
+  configKey: string
+  currentVersion: number
+  latestVersion: ConfigLatestVersion
+}
+
+/** Тело ответа GET /v1/configs (ConfigListResponse.java). */
+export interface ConfigListResponse {
+  configs: ConfigResponse[]
+}
+
+/**
+ * Одна строка UI после объединения ответов GET /v1/configs
+ * для нескольких значений query-параметра environment.
+ */
+export interface ServiceConfigRow extends ConfigResponse {
+  environment: string
+}
+
+/** Тело POST /v1/configs (CreateConfigRequest.java). */
+export interface CreateConfigRequest {
   service: string
   env: string
   key: string
-  value: string
-  version: number
-  createdAt: string
-  updatedAt: string
-}
-
-export interface ConfigListResponse {
-  items: ConfigItem[]
-  pagination: Pagination
+  value: unknown
 }

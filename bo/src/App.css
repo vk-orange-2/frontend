@@ -55,6 +55,13 @@
   gap: 16px 24px;
 }
 
+.page-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 16px 20px;
+}
+
 .env-filter {
   text-align: left;
 }
@@ -288,6 +295,129 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   vertical-align: middle;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 500;
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-decoration: none;
+  box-sizing: border-box;
+  line-height: 1.2;
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn--primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent-border);
+}
+
+.btn--primary:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+
+.btn--ghost {
+  background: var(--bg);
+  color: var(--accent);
+  border-color: var(--accent-border);
+}
+
+.btn--ghost:hover {
+  background: var(--accent-bg);
+}
+
+.btn--small {
+  padding: 6px 12px;
+  font-size: 0.85rem;
+}
+
+.data-table__actions-col {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.data-table__actions {
+  vertical-align: middle;
+}
+
+.config-form {
+  margin-top: 24px;
+  max-width: 640px;
+  text-align: left;
+}
+
+.config-form__field {
+  display: block;
+  margin-bottom: 20px;
+}
+
+.config-form__label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-h);
+  margin-bottom: 8px;
+}
+
+.config-form__input,
+.config-form__textarea {
+  width: 100%;
+  max-width: 100%;
+  font: inherit;
+  font-size: 0.95rem;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-h);
+  box-sizing: border-box;
+}
+
+.config-form__textarea {
+  resize: vertical;
+  min-height: 200px;
+  line-height: 1.45;
+}
+
+.config-form__input:focus,
+.config-form__textarea:focus {
+  outline: 2px solid var(--accent-border);
+  outline-offset: 1px;
+}
+
+.config-form__readonly {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--code-bg);
+  color: var(--text-h);
+}
+
+.config-form__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.config-form__hint {
+  margin: -8px 0 0;
+  font-size: 0.88rem;
 }
 
 @media (prefers-color-scheme: dark) {

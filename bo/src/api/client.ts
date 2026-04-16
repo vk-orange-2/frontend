@@ -1,5 +1,11 @@
-import type { ConfigItem, ConfigListResponse, ServiceListResponse } from './types'
-import { mockConfigsForService, mockServiceList } from './mocks'
+import type {
+  ConfigListResponse,
+  ConfigResponse,
+  CreateConfigRequest,
+  ServiceConfigRow,
+  ServiceResponse,
+} from './types'
+import { mockMergedServiceConfigs, mockServiceList, mockUpsertConfigRow } from './mocks'
 
 const DEFAULT_API_BASE = 'http://localhost:8080'
 
@@ -11,7 +17,8 @@ const API_BASE = (
 /** Моки только при `VITE_API_MOCK=true`; иначе — реальный бэкенд. */
 const USE_MOCK = import.meta.env.VITE_API_MOCK === 'true'
 
-const CONFIG_ENVIRONMENTS = ['dev', 'prod'] as const
+/** Окружения из ConfigService (dev, stage, prod). */
+const CONFIG_ENVIRONMENTS = ['dev', 'stage', 'prod'] as const
 
 function buildUrl(path: string): string {
   const p = path.startsWith('/') ? path : `/${path}`
@@ -44,28 +51,55 @@ async function delay(ms: number): Promise<void> {
   await new Promise((r) => setTimeout(r, ms))
 }
 
-function normalizeConfigRow(raw: Record<string, unknown>): ConfigItem {
-  const id = raw.id != null ? String(raw.id) : ''
-  const version =
-    typeof raw.version === 'number'
-      ? raw.version
-      : Number.parseInt(String(raw.version ?? '0'), 10) || 0
+function parseServiceResponse(row: unknown): ServiceResponse {
+  if (row == null || typeof row !== 'object') {
+    return { id: '', name: '', description: null, createdAt: '' }
+  }
+  const r = row as Record<string, unknown>
   return {
-    id,
-    service: String(raw.service ?? ''),
-    env: String(raw.env ?? ''),
-    key: String(raw.key ?? ''),
-    value: String(raw.value ?? ''),
-    version,
-    createdAt: String(raw.createdAt ?? ''),
-    updatedAt: String(raw.updatedAt ?? ''),
+    id: r.id != null ? String(r.id) : '',
+    name: String(r.name ?? ''),
+    description: r.description == null ? null : String(r.description),
+    createdAt: String(r.createdAt ?? ''),
   }
 }
 
+function parseConfigResponse(row: unknown): ConfigResponse {
+  if (row == null || typeof row !== 'object') {
+    return {
+      configKey: '',
+      currentVersion: 0,
+      latestVersion: { payload: null },
+    }
+  }
+  const r = row as Record<string, unknown>
+  const lv = r.latestVersion
+  let payload: unknown = null
+  if (lv != null && typeof lv === 'object' && 'payload' in lv) {
+    payload = (lv as Record<string, unknown>).payload
+  }
+  const ver =
+    typeof r.currentVersion === 'number'
+      ? r.currentVersion
+      : Number.parseInt(String(r.currentVersion ?? '0'), 10) || 0
+  return {
+    configKey: String(r.configKey ?? ''),
+    currentVersion: ver,
+    latestVersion: { payload },
+  }
+}
+
+function parseConfigListBody(raw: unknown): ConfigResponse[] {
+  if (raw == null || typeof raw !== 'object') return []
+  const configs = (raw as ConfigListResponse).configs
+  if (!Array.isArray(configs)) return []
+  return configs.map(parseConfigResponse)
+}
+
 /**
- * GET /v1/services — список имён сервисов.
+ * GET /v1/services — список сервисов (как List ServiceResponse на бэкенде).
  */
-export async function fetchServices(): Promise<ServiceListResponse> {
+export async function fetchServices(): Promise<ServiceResponse[]> {
   const path = '/v1/services'
   if (USE_MOCK) {
     await delay(180)
@@ -79,25 +113,21 @@ export async function fetchServices(): Promise<ServiceListResponse> {
     const body = await res.text()
     throw new ApiError(`Ошибка ${res.status}`, res.status, body)
   }
-  const names = await parseJson<string[]>(res)
-  const items = Array.isArray(names)
-    ? names.map((name) => ({ name: String(name) }))
-    : []
-  return {
-    items,
-    pagination: { page: 1, pageSize: items.length, total: items.length },
-  }
+  const raw = await parseJson<unknown>(res)
+  const list = Array.isArray(raw) ? raw : []
+  return list.map(parseServiceResponse)
 }
 
 /**
  * GET /v1/configs?serviceName=&environment= — для нескольких сред результаты объединяются.
+ * Каждый ответ: { configs: ConfigResponse[] } (ConfigListResponse.java).
  */
 export async function fetchServiceConfigs(
   serviceName: string,
-): Promise<ConfigListResponse> {
+): Promise<ServiceConfigRow[]> {
   if (USE_MOCK) {
     await delay(180)
-    return structuredClone(mockConfigsForService(serviceName))
+    return structuredClone(mockMergedServiceConfigs(serviceName))
   }
 
   const results = await Promise.all(
@@ -113,21 +143,105 @@ export async function fetchServiceConfigs(
         const body = await res.text()
         throw new ApiError(`Ошибка ${res.status}`, res.status, body)
       }
-      const list = await parseJson<unknown[]>(res)
-      if (!Array.isArray(list)) return []
-      return list.map((row) =>
-        normalizeConfigRow(row != null && typeof row === 'object' ? (row as Record<string, unknown>) : {}),
+      const raw = await parseJson<unknown>(res)
+      const configs = parseConfigListBody(raw)
+      return configs.map(
+        (c): ServiceConfigRow => ({
+          ...c,
+          environment,
+        }),
       )
     }),
   )
 
   const items = results.flat()
-  items.sort((a, b) => a.env.localeCompare(b.env) || a.key.localeCompare(b.key))
+  items.sort(
+    (a, b) =>
+      a.environment.localeCompare(b.environment) ||
+      a.configKey.localeCompare(b.configKey),
+  )
 
-  return {
-    items,
-    pagination: { page: 1, pageSize: items.length, total: items.length },
+  return items
+}
+
+/**
+ * GET /v1/configs?serviceName=&environment= — одна среда.
+ */
+export async function fetchConfigsForEnvironment(
+  serviceName: string,
+  environment: string,
+): Promise<ServiceConfigRow[]> {
+  if (USE_MOCK) {
+    await delay(180)
+    return mockMergedServiceConfigs(serviceName).filter(
+      (r) => r.environment === environment,
+    )
   }
+
+  const q = new URLSearchParams({ serviceName, environment })
+  const res = await fetch(buildUrl(`/v1/configs?${q}`), {
+    headers: { Accept: 'application/json' },
+  })
+  if (!res.ok) {
+    const body = await res.text()
+    throw new ApiError(`Ошибка ${res.status}`, res.status, body)
+  }
+  const raw = await parseJson<unknown>(res)
+  const configs = parseConfigListBody(raw)
+  return configs.map(
+    (c): ServiceConfigRow => ({
+      ...c,
+      environment,
+    }),
+  )
+}
+
+/**
+ * POST /v1/configs — создать или обновить (CreateConfigRequest.java).
+ */
+export async function createOrUpdateConfig(
+  body: CreateConfigRequest,
+): Promise<ConfigResponse> {
+  if (USE_MOCK) {
+    await delay(180)
+    const existing = mockMergedServiceConfigs(body.service).find(
+      (r) => r.environment === body.env && r.configKey === body.key,
+    )
+    const nextVer = existing ? existing.currentVersion + 1 : 1
+    const row: ServiceConfigRow = {
+      configKey: body.key,
+      currentVersion: nextVer,
+      latestVersion: { payload: body.value },
+      environment: body.env,
+    }
+    mockUpsertConfigRow(body.service, row)
+    return {
+      configKey: row.configKey,
+      currentVersion: row.currentVersion,
+      latestVersion: row.latestVersion,
+    }
+  }
+
+  const res = await fetch(buildUrl('/v1/configs'), {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const bodyText = await res.text()
+    let parsed: unknown
+    try {
+      parsed = bodyText ? JSON.parse(bodyText) : undefined
+    } catch {
+      parsed = bodyText
+    }
+    throw new ApiError(`Ошибка ${res.status}`, res.status, parsed)
+  }
+  const raw = await parseJson<unknown>(res)
+  return parseConfigResponse(raw)
 }
 
 export { ApiError }
