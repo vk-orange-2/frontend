@@ -7,13 +7,6 @@ import type {
   ServiceResponse,
   VersionHistoryResponse,
 } from './types'
-import {
-  mockConfigVersionHistory,
-  mockMergedServiceConfigs,
-  mockServiceList,
-  mockStableConfigId,
-  mockUpsertConfigRow,
-} from './mocks'
 
 /** Совпадает с `server.port` в backend config-server application.yml */
 const DEFAULT_API_BASE = 'http://localhost:8081'
@@ -22,9 +15,6 @@ const API_BASE = (
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
   DEFAULT_API_BASE
 ).replace(/\/$/, '')
-
-/** Моки только при `VITE_API_MOCK=true`; иначе — реальный бэкенд. */
-const USE_MOCK = import.meta.env.VITE_API_MOCK === 'true'
 
 /** Окружения из ConfigService (dev, stage, prod). */
 const CONFIG_ENVIRONMENTS = ['dev', 'stage', 'prod'] as const
@@ -54,10 +44,6 @@ async function parseJson<T>(res: Response): Promise<T> {
   } catch {
     throw new ApiError('Некорректный JSON в ответе', res.status)
   }
-}
-
-async function delay(ms: number): Promise<void> {
-  await new Promise((r) => setTimeout(r, ms))
 }
 
 function parseServiceResponse(row: unknown): ServiceResponse {
@@ -139,11 +125,6 @@ function parseConfigListBody(raw: unknown): ConfigResponse[] {
  */
 export async function fetchServices(): Promise<ServiceResponse[]> {
   const path = '/v1/services'
-  if (USE_MOCK) {
-    await delay(180)
-    return structuredClone(mockServiceList)
-  }
-
   const res = await fetch(buildUrl(path), {
     headers: { Accept: 'application/json' },
   })
@@ -163,11 +144,6 @@ export async function fetchServices(): Promise<ServiceResponse[]> {
 export async function fetchServiceConfigs(
   serviceName: string,
 ): Promise<ServiceConfigRow[]> {
-  if (USE_MOCK) {
-    await delay(180)
-    return structuredClone(mockMergedServiceConfigs(serviceName))
-  }
-
   const results = await Promise.all(
     CONFIG_ENVIRONMENTS.map(async (environment) => {
       const q = new URLSearchParams({
@@ -209,13 +185,6 @@ export async function fetchConfigsForEnvironment(
   serviceName: string,
   environment: string,
 ): Promise<ServiceConfigRow[]> {
-  if (USE_MOCK) {
-    await delay(180)
-    return mockMergedServiceConfigs(serviceName).filter(
-      (r) => r.environment === environment,
-    )
-  }
-
   const q = new URLSearchParams({ serviceName, environment })
   const res = await fetch(buildUrl(`/v1/configs?${q}`), {
     headers: { Accept: 'application/json' },
@@ -240,29 +209,6 @@ export async function fetchConfigsForEnvironment(
 export async function createOrUpdateConfig(
   body: CreateConfigRequest,
 ): Promise<ConfigResponse> {
-  if (USE_MOCK) {
-    await delay(180)
-    const existing = mockMergedServiceConfigs(body.service).find(
-      (r) => r.environment === body.env && r.configKey === body.key,
-    )
-    const nextVer = existing ? existing.currentVersion + 1 : 1
-    const id = existing?.id ?? mockStableConfigId(body.service, body.env, body.key)
-    const row: ServiceConfigRow = {
-      id,
-      configKey: body.key,
-      currentVersion: nextVer,
-      latestVersion: { payload: body.value },
-      environment: body.env,
-    }
-    mockUpsertConfigRow(body.service, row)
-    return {
-      id: row.id,
-      configKey: row.configKey,
-      currentVersion: row.currentVersion,
-      latestVersion: row.latestVersion,
-    }
-  }
-
   const res = await fetch(buildUrl('/v1/configs'), {
     method: 'POST',
     headers: {
@@ -316,11 +262,6 @@ function parseConfigVersionEntry(row: unknown): ConfigVersionEntry {
 export async function fetchConfigVersionHistory(
   configId: string,
 ): Promise<ConfigVersionEntry[]> {
-  if (USE_MOCK) {
-    await delay(180)
-    return mockConfigVersionHistory(configId).versions
-  }
-
   const res = await fetch(
     buildUrl(`/v1/configs/${encodeURIComponent(configId)}/versions`),
     { headers: { Accept: 'application/json' } },
