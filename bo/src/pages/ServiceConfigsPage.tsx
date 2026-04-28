@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { fetchServiceConfigs } from '../api/client'
 import type { ServiceConfigRow } from '../api/types'
-import { editConfigPath } from './ServiceConfigEditorPages'
+import { editConfigPath, versionHistoryPath } from './configPaths'
 
 type EnvFilterChoice = 'dev' | 'stage' | 'prod'
 
@@ -43,6 +43,8 @@ export function ServiceConfigsPage() {
 
   useEffect(() => {
     if (!serviceName) {
+      /* Сброс при пустом segment — допустимый сценарий; см. react-hooks/set-state-in-effect. */
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- пустой serviceName из маршрута
       setLoading(false)
       setRows(null)
       setError(null)
@@ -163,6 +165,16 @@ export function ServiceConfigsPage() {
                         </td>
                         <td className="mono">{c.currentVersion}</td>
                         <td className="data-table__actions">
+                          <Link
+                            className="btn btn--ghost btn--small"
+                            to={versionHistoryPath(
+                              serviceName,
+                              c.environment,
+                              c.configKey,
+                            )}
+                          >
+                            История
+                          </Link>
                           <Link
                             className="btn btn--ghost btn--small"
                             to={editConfigPath(serviceName, c.environment, c.configKey)}

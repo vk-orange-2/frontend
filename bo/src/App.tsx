@@ -1,5 +1,6 @@
 import { BrowserRouter, Link, Navigate, Route, Routes, useParams } from 'react-router-dom'
 import { HomePage } from './pages/HomePage'
+import { ConfigVersionHistoryPage } from './pages/ConfigVersionHistoryPage'
 import {
   ServiceConfigCreatePage,
   ServiceConfigEditPage,
@@ -25,6 +26,10 @@ export default function App() {
           <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/services/:serviceName/configs/new" element={<ServiceConfigCreatePage />} />
+            <Route
+              path="/services/:serviceName/configs/:environment/history/:configKey"
+              element={<ConfigVersionHistoryPage />}
+            />
             <Route
               path="/services/:serviceName/configs/:environment/edit/:configKey"
               element={<ServiceConfigEditPage />}

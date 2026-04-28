@@ -2,6 +2,7 @@ import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 're
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { createOrUpdateConfig, fetchConfigsForEnvironment } from '../api/client'
 import type { ServiceConfigRow } from '../api/types'
+import { configsListPath, versionHistoryPath } from './configPaths'
 
 type EnvChoice = 'dev' | 'stage' | 'prod'
 
@@ -23,18 +24,6 @@ function formatPayloadForEditor(payload: unknown): string {
   } catch {
     return String(payload)
   }
-}
-
-function configsListPath(serviceName: string): string {
-  return `/services/${encodeURIComponent(serviceName)}/configs`
-}
-
-export function editConfigPath(
-  serviceName: string,
-  environment: string,
-  configKey: string,
-): string {
-  return `${configsListPath(serviceName)}/${encodeURIComponent(environment)}/edit/${encodeURIComponent(configKey)}`
 }
 
 function ConfigFormShell(props: {
@@ -232,7 +221,7 @@ export function ServiceConfigEditPage() {
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
-    if (!serviceName || !environment || !configKey) return
+    if (!serviceName || !environment || !configKey || !row) return
     setError(null)
     let value: unknown
     try {
@@ -248,6 +237,7 @@ export function ServiceConfigEditPage() {
         env: environment,
         key: configKey,
         value,
+        expectedVersion: row.currentVersion,
       })
       navigate(configsListPath(serviceName))
     } catch (err) {
@@ -329,8 +319,16 @@ export function ServiceConfigEditPage() {
         />
       </label>
 
-      <p className="muted config-form__hint">
-        Текущая версия: {row.currentVersion}
+      <p className="muted config-form__hint config-form__hint--row">
+        <span>Текущая версия: {row.currentVersion}</span>
+        {row.id ? (
+          <Link
+            className="config-form__history-link"
+            to={versionHistoryPath(serviceName, environment, configKey)}
+          >
+            История версий
+          </Link>
+        ) : null}
       </p>
     </ConfigFormShell>
   )

@@ -2,12 +2,21 @@ import type {
   ConfigListResponse,
   ConfigResponse,
   CreateConfigRequest,
+  ConfigVersionEntry,
   ServiceConfigRow,
   ServiceResponse,
+  VersionHistoryResponse,
 } from './types'
-import { mockMergedServiceConfigs, mockServiceList, mockUpsertConfigRow } from './mocks'
+import {
+  mockConfigVersionHistory,
+  mockMergedServiceConfigs,
+  mockServiceList,
+  mockStableConfigId,
+  mockUpsertConfigRow,
+} from './mocks'
 
-const DEFAULT_API_BASE = 'http://localhost:8080'
+/** Совпадает с `server.port` в backend config-server application.yml */
+const DEFAULT_API_BASE = 'http://localhost:8081'
 
 const API_BASE = (
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
@@ -64,6 +73,11 @@ function parseServiceResponse(row: unknown): ServiceResponse {
   }
 }
 
+function parseOptionalString(v: unknown): string | undefined {
+  if (v == null) return undefined
+  return String(v)
+}
+
 function parseConfigResponse(row: unknown): ConfigResponse {
   if (row == null || typeof row !== 'object') {
     return {
@@ -82,11 +96,35 @@ function parseConfigResponse(row: unknown): ConfigResponse {
     typeof r.currentVersion === 'number'
       ? r.currentVersion
       : Number.parseInt(String(r.currentVersion ?? '0'), 10) || 0
+
+  let deletedAt: string | null | undefined
+  if (r.deletedAt === undefined) deletedAt = undefined
+  else if (r.deletedAt === null) deletedAt = null
+  else deletedAt = String(r.deletedAt)
+
   return {
+    id: r.id != null ? String(r.id) : undefined,
     configKey: String(r.configKey ?? ''),
+    service: parseOptionalString(r.service),
+    environment: parseOptionalString(r.environment),
+    isSecret: typeof r.isSecret === 'boolean' ? r.isSecret : undefined,
+    status: parseOptionalString(r.status),
     currentVersion: ver,
     latestVersion: { payload },
+    createdAt: parseOptionalString(r.createdAt),
+    updatedAt: parseOptionalString(r.updatedAt),
+    deletedAt,
   }
+}
+
+function apiErrorMessage(status: number, parsed: unknown): string {
+  if (parsed && typeof parsed === 'object' && 'error' in parsed) {
+    const inner = (parsed as { error?: { message?: unknown } }).error
+    if (inner && typeof inner.message === 'string' && inner.message.length > 0) {
+      return inner.message
+    }
+  }
+  return `Ошибка ${status}`
 }
 
 function parseConfigListBody(raw: unknown): ConfigResponse[] {
@@ -148,7 +186,7 @@ export async function fetchServiceConfigs(
       return configs.map(
         (c): ServiceConfigRow => ({
           ...c,
-          environment,
+          environment: c.environment ?? environment,
         }),
       )
     }),
@@ -191,7 +229,7 @@ export async function fetchConfigsForEnvironment(
   return configs.map(
     (c): ServiceConfigRow => ({
       ...c,
-      environment,
+      environment: c.environment ?? environment,
     }),
   )
 }
@@ -208,7 +246,9 @@ export async function createOrUpdateConfig(
       (r) => r.environment === body.env && r.configKey === body.key,
     )
     const nextVer = existing ? existing.currentVersion + 1 : 1
+    const id = existing?.id ?? mockStableConfigId(body.service, body.env, body.key)
     const row: ServiceConfigRow = {
+      id,
       configKey: body.key,
       currentVersion: nextVer,
       latestVersion: { payload: body.value },
@@ -216,6 +256,7 @@ export async function createOrUpdateConfig(
     }
     mockUpsertConfigRow(body.service, row)
     return {
+      id: row.id,
       configKey: row.configKey,
       currentVersion: row.currentVersion,
       latestVersion: row.latestVersion,
@@ -238,10 +279,63 @@ export async function createOrUpdateConfig(
     } catch {
       parsed = bodyText
     }
-    throw new ApiError(`Ошибка ${res.status}`, res.status, parsed)
+    throw new ApiError(apiErrorMessage(res.status, parsed), res.status, parsed)
   }
   const raw = await parseJson<unknown>(res)
   return parseConfigResponse(raw)
+}
+
+function parseConfigVersionEntry(row: unknown): ConfigVersionEntry {
+  if (row == null || typeof row !== 'object') {
+    return {
+      version: 0,
+      payload: null,
+      changeType: '',
+      author: '',
+      comment: null,
+      createdAt: '',
+    }
+  }
+  const r = row as Record<string, unknown>
+  const ver = r.version
+  return {
+    id: r.id != null ? String(r.id) : undefined,
+    configId: r.configId != null ? String(r.configId) : undefined,
+    version: typeof ver === 'number' ? ver : Number.parseInt(String(ver ?? '0'), 10) || 0,
+    payload: r.payload,
+    changeType: String(r.changeType ?? ''),
+    author: String(r.author ?? ''),
+    comment: r.comment == null ? null : String(r.comment),
+    createdAt: r.createdAt != null ? String(r.createdAt) : '',
+  }
+}
+
+/**
+ * GET /v1/configs/{configId}/versions — история версий (сортировка: от новой к старой).
+ */
+export async function fetchConfigVersionHistory(
+  configId: string,
+): Promise<ConfigVersionEntry[]> {
+  if (USE_MOCK) {
+    await delay(180)
+    return mockConfigVersionHistory(configId).versions
+  }
+
+  const res = await fetch(
+    buildUrl(`/v1/configs/${encodeURIComponent(configId)}/versions`),
+    { headers: { Accept: 'application/json' } },
+  )
+  if (!res.ok) {
+    const body = await res.text()
+    throw new ApiError(`Ошибка ${res.status}`, res.status, body)
+  }
+  const raw = await parseJson<VersionHistoryResponse | unknown>(res)
+  if (raw == null || typeof raw !== 'object' || !('versions' in raw)) {
+    return []
+  }
+  const list = (raw as VersionHistoryResponse).versions
+  if (!Array.isArray(list)) return []
+  return list.map(parseConfigVersionEntry)
 }
 
 export { ApiError }

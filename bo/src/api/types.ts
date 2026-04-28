@@ -15,9 +15,17 @@ export interface ConfigLatestVersion {
 
 /** Элемент массива configs в GET /v1/configs (ConfigResponse.java). */
 export interface ConfigResponse {
+  id?: string
   configKey: string
+  service?: string
+  environment?: string
+  isSecret?: boolean
+  status?: string
   currentVersion: number
   latestVersion: ConfigLatestVersion
+  createdAt?: string
+  updatedAt?: string
+  deletedAt?: string | null
 }
 
 /** Тело ответа GET /v1/configs (ConfigListResponse.java). */
@@ -39,4 +47,27 @@ export interface CreateConfigRequest {
   env: string
   key: string
   value: unknown
+  /** При обновлении существующего конфига обязателен (иначе VERSION_CONFLICT). */
+  expectedVersion?: number
+  isSecret?: boolean
+}
+
+/**
+ * Элемент GET /v1/configs/{id}/versions (VersionResponse.java),
+ * варианты changeType: create, update, delete, rollback.
+ */
+export interface ConfigVersionEntry {
+  id?: string
+  configId?: string
+  version: number
+  payload: unknown
+  changeType: string
+  author: string
+  comment: string | null
+  createdAt: string
+}
+
+/** Ответ GET /v1/configs/{id}/versions (VersionHistoryResponse.java). */
+export interface VersionHistoryResponse {
+  versions: ConfigVersionEntry[]
 }
