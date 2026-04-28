@@ -3,6 +3,7 @@ import type {
   ConfigResponse,
   CreateConfigRequest,
   ConfigVersionEntry,
+  RollbackRequest,
   ServiceConfigRow,
   ServiceResponse,
   VersionHistoryResponse,
@@ -277,6 +278,44 @@ export async function fetchConfigVersionHistory(
   const list = (raw as VersionHistoryResponse).versions
   if (!Array.isArray(list)) return []
   return list.map(parseConfigVersionEntry)
+}
+
+/**
+ * POST /v1/configs/{configId}/rollback — откат к payload выбранной версии (новая версия в истории).
+ */
+export async function rollbackConfig(
+  configId: string,
+  body: RollbackRequest,
+): Promise<ConfigResponse> {
+  const res = await fetch(
+    buildUrl(`/v1/configs/${encodeURIComponent(configId)}/rollback`),
+    {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        targetVersion: body.targetVersion,
+        expectedVersion: body.expectedVersion,
+        ...(body.comment != null && body.comment !== ''
+          ? { comment: body.comment }
+          : {}),
+      }),
+    },
+  )
+  if (!res.ok) {
+    const bodyText = await res.text()
+    let parsed: unknown
+    try {
+      parsed = bodyText ? JSON.parse(bodyText) : undefined
+    } catch {
+      parsed = bodyText
+    }
+    throw new ApiError(apiErrorMessage(res.status, parsed), res.status, parsed)
+  }
+  const raw = await parseJson<unknown>(res)
+  return parseConfigResponse(raw)
 }
 
 export { ApiError }

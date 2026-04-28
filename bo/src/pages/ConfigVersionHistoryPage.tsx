@@ -1,7 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useId, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { fetchConfigVersionHistory, fetchConfigsForEnvironment } from '../api/client'
+import {
+  ApiError,
+  fetchConfigVersionHistory,
+  fetchConfigsForEnvironment,
+  rollbackConfig,
+} from '../api/client'
 import type { ConfigVersionEntry, ServiceConfigRow } from '../api/types'
+import { ConfigVersionComparePanel } from './ConfigVersionComparePanel'
 import { configsListPath, editConfigPath } from './configPaths'
 
 const changeTypeLabel: Record<string, string> = {
@@ -57,6 +63,93 @@ export function ConfigVersionHistoryPage() {
   const [versionsError, setVersionsError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
+  const [rollbackTarget, setRollbackTarget] = useState<ConfigVersionEntry | null>(null)
+  const [rollbackComment, setRollbackComment] = useState('')
+  const [rollbackSubmitting, setRollbackSubmitting] = useState(false)
+  const [rollbackError, setRollbackError] = useState<string | null>(null)
+  const [rollbackResult, setRollbackResult] = useState<{
+    newVersion: number
+    fromVersion: number
+  } | null>(null)
+
+  const titleId = useId()
+  const descId = useId()
+
+  const refetchAfterRollback = useCallback(
+    async (configId: string) => {
+      const list = await fetchConfigVersionHistory(configId)
+      setVersions(list)
+    },
+    [],
+  )
+
+  const closeRollbackDialog = useCallback(() => {
+    if (rollbackSubmitting) return
+    setRollbackTarget(null)
+    setRollbackComment('')
+    setRollbackError(null)
+  }, [rollbackSubmitting])
+
+  const confirmRollback = useCallback(async () => {
+    if (!row?.id || !rollbackTarget) return
+    setRollbackSubmitting(true)
+    setRollbackError(null)
+    const configId = row.id
+    const fromVer = rollbackTarget.version
+    try {
+      const res = await rollbackConfig(configId, {
+        targetVersion: rollbackTarget.version,
+        expectedVersion: row.currentVersion,
+        comment: rollbackComment.trim() ? rollbackComment.trim() : undefined,
+      })
+      setRow((prev) =>
+        prev
+          ? {
+              ...prev,
+              currentVersion: res.currentVersion,
+              latestVersion: res.latestVersion,
+              updatedAt: res.updatedAt ?? prev.updatedAt,
+            }
+          : null,
+      )
+      await refetchAfterRollback(configId)
+      setRollbackResult({
+        newVersion: res.currentVersion,
+        fromVersion: fromVer,
+      })
+      setRollbackTarget(null)
+      setRollbackComment('')
+    } catch (e: unknown) {
+      const msg =
+        e instanceof ApiError
+          ? e.message
+          : e instanceof Error
+            ? e.message
+            : 'Не удалось выполнить откат'
+      setRollbackError(msg)
+    } finally {
+      setRollbackSubmitting(false)
+    }
+  }, [
+    row,
+    rollbackTarget,
+    rollbackComment,
+    refetchAfterRollback,
+  ])
+
+  useEffect(() => {
+    if (!rollbackTarget) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !rollbackSubmitting) {
+        setRollbackTarget(null)
+        setRollbackError(null)
+        setRollbackComment('')
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [rollbackTarget, rollbackSubmitting])
+
   useEffect(() => {
     if (!serviceName || !environment || !configKey) {
       setLoading(false)
@@ -71,6 +164,10 @@ export function ConfigVersionHistoryPage() {
     setVersionsError(null)
     setVersions(null)
     setRow(null)
+    setRollbackResult(null)
+    setRollbackError(null)
+    setRollbackTarget(null)
+    setRollbackComment('')
 
     let rowAfterFetch: ServiceConfigRow | null = null
 
@@ -176,8 +273,33 @@ export function ConfigVersionHistoryPage() {
         <p className="error-banner">{versionsError}</p>
       )}
 
+      {!loading && !loadError && row && row.id && !versionsError && rollbackResult && (
+        <div
+          className="success-banner"
+          role="status"
+          aria-live="polite"
+        >
+          <p className="success-banner__text">
+            Откат выполнен. Создана новая версия{' '}
+            <span className="mono">v{rollbackResult.newVersion}</span> с состоянием payload,
+            соответствующим версии <span className="mono">v{rollbackResult.fromVersion}</span>.
+          </p>
+          <button
+            type="button"
+            className="btn btn--ghost btn--small"
+            onClick={() => setRollbackResult(null)}
+          >
+            Скрыть
+          </button>
+        </div>
+      )}
+
       {!loading && !loadError && row && row.id && !versionsError && versions && versions.length === 0 && (
         <p className="muted">Версий пока нет.</p>
+      )}
+
+      {!loading && !loadError && row && row.id && !versionsError && versions && versions.length > 0 && (
+        <ConfigVersionComparePanel versions={versions} />
       )}
 
       {!loading && !loadError && row && row.id && !versionsError && versions && versions.length > 0 && (
@@ -185,6 +307,8 @@ export function ConfigVersionHistoryPage() {
           {versions.map((v) => {
             const typeKey = v.changeType.toLowerCase()
             const typeText = changeTypeLabel[typeKey] ?? v.changeType
+            const isHead = v.version === row.currentVersion
+            const canRollback = v.version < row.currentVersion
             return (
               <li key={v.id ?? `v${v.version}`} className="version-feed__item">
                 <article className="version-card">
@@ -196,7 +320,27 @@ export function ConfigVersionHistoryPage() {
                     >
                       {typeText}
                     </span>
+                    {isHead ? (
+                      <span className="badge version-card__head-badge" title="Текущая версия конфигурации">
+                        Текущая
+                      </span>
+                    ) : null}
                   </div>
+                  {canRollback ? (
+                    <div className="version-card__actions">
+                      <button
+                        type="button"
+                        className="btn btn--small btn--ghost"
+                        onClick={() => {
+                          setRollbackResult(null)
+                          setRollbackTarget(v)
+                          setRollbackError(null)
+                        }}
+                      >
+                        Откатить к этой версии
+                      </button>
+                    </div>
+                  ) : null}
                   <dl className="version-card__meta">
                     <div>
                       <dt>Автор</dt>
@@ -222,6 +366,69 @@ export function ConfigVersionHistoryPage() {
           })}
         </ol>
       )}
+
+      {rollbackTarget && row?.id ? (
+        <div
+          className="rollback-dialog-backdrop"
+          role="presentation"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) closeRollbackDialog()
+          }}
+        >
+          <div
+            className="rollback-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
+            aria-describedby={descId}
+          >
+            <h2 id={titleId} className="rollback-dialog__title">
+              Подтверждение отката
+            </h2>
+            <p id={descId} className="rollback-dialog__text">
+              В истории появится <strong>новая версия</strong>: payload конфигурации совпадёт
+              с содержимым <span className="mono">v{rollbackTarget.version}</span>. Сейчас
+              на сервере зафиксирована <span className="mono">v{row.currentVersion}</span> —
+              при расхождении запрос отклонится, обновите страницу.
+            </p>
+            {rollbackError ? (
+              <p className="error-banner rollback-dialog__err" role="alert">
+                {rollbackError}
+              </p>
+            ) : null}
+            <label className="rollback-dialog__field">
+              <span className="rollback-dialog__label">Комментарий (необязательно)</span>
+              <textarea
+                className="config-form__input rollback-dialog__textarea"
+                value={rollbackComment}
+                onChange={(e) => setRollbackComment(e.target.value)}
+                rows={2}
+                disabled={rollbackSubmitting}
+              />
+            </label>
+            <div className="rollback-dialog__actions">
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={closeRollbackDialog}
+                disabled={rollbackSubmitting}
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                className="btn btn--primary"
+                onClick={() => {
+                  void confirmRollback()
+                }}
+                disabled={rollbackSubmitting}
+              >
+                {rollbackSubmitting ? 'Выполняется…' : 'Подтвердить откат'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
