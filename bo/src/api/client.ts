@@ -1,4 +1,6 @@
 import type {
+  AuditLogEntry,
+  AuditSearchResult,
   ConfigListResponse,
   ConfigResponse,
   CreateConfigRequest,
@@ -318,4 +320,95 @@ export async function rollbackConfig(
   return parseConfigResponse(raw)
 }
 
-export { ApiError }
+function parseAuditLogEntry(row: unknown): AuditLogEntry {
+  if (row == null || typeof row !== 'object') {
+    return {
+      id: '',
+      configId: '',
+      serviceName: '',
+      environment: '',
+      configKey: '',
+      operation: '',
+      actor: '',
+      sourceIp: null,
+      versionBefore: null,
+      versionAfter: null,
+      diff: null,
+      createdAt: '',
+    }
+  }
+  const r = row as Record<string, unknown>
+  const vb = r.versionBefore
+  const va = r.versionAfter
+  const longOrNull = (v: unknown): number | null => {
+    if (v == null) return null
+    if (typeof v === 'number' && Number.isFinite(v)) return v
+    const n = Number.parseInt(String(v), 10)
+    return Number.isNaN(n) ? null : n
+  }
+  return {
+    id: r.id != null ? String(r.id) : '',
+    configId: r.configId != null ? String(r.configId) : '',
+    serviceName: String(r.serviceName ?? ''),
+    environment: String(r.environment ?? ''),
+    configKey: String(r.configKey ?? ''),
+    operation: String(r.operation ?? ''),
+    actor: String(r.actor ?? ''),
+    sourceIp: r.sourceIp == null ? null : String(r.sourceIp),
+    versionBefore: longOrNull(vb),
+    versionAfter: longOrNull(va),
+    diff: r.diff,
+    createdAt: r.createdAt != null ? String(r.createdAt) : '',
+  }
+}
+
+export interface FetchAuditParams {
+  serviceName?: string
+  actor?: string
+  from?: string
+  to?: string
+  operation?: string
+  page?: number
+  size?: number
+}
+
+const DEFAULT_AUDIT_PAGE_SIZE = 50
+
+/**
+ * GET /v1/audit — журнал изменений с фильтрами (см. AuditController).
+ */
+export async function fetchAuditSearch(
+  params: FetchAuditParams,
+): Promise<AuditSearchResult> {
+  const q = new URLSearchParams()
+  if (params.serviceName) q.set('serviceName', params.serviceName)
+  if (params.actor) q.set('actor', params.actor)
+  if (params.from) q.set('from', params.from)
+  if (params.to) q.set('to', params.to)
+  if (params.operation) q.set('operation', params.operation)
+  const page = params.page ?? 0
+  const size = params.size ?? DEFAULT_AUDIT_PAGE_SIZE
+  q.set('page', String(page))
+  q.set('size', String(size))
+
+  const res = await fetch(buildUrl(`/v1/audit?${q}`), {
+    headers: { Accept: 'application/json' },
+  })
+  if (!res.ok) {
+    const body = await res.text()
+    throw new ApiError(`Ошибка ${res.status}`, res.status, body)
+  }
+  const raw = await parseJson<unknown>(res)
+  if (raw == null || typeof raw !== 'object') {
+    return { entries: [], totalCount: 0 }
+  }
+  const o = raw as Record<string, unknown>
+  const list = o.entries
+  const entries = Array.isArray(list) ? list.map(parseAuditLogEntry) : []
+  const total = o.totalCount
+  const totalCount =
+    typeof total === 'number' && Number.isFinite(total) ? total : 0
+  return { entries, totalCount }
+}
+
+export { ApiError, DEFAULT_AUDIT_PAGE_SIZE }

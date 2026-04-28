@@ -8,10 +8,22 @@
 
 .app-header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 12px;
   padding: 20px 24px 16px;
   border-bottom: 1px solid var(--border);
+}
+
+.app-header-link {
+  margin-left: auto;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.app-header-link:hover {
+  text-decoration: underline;
 }
 
 .app-brand {
@@ -43,6 +55,10 @@
 
 .page--wide {
   max-width: 880px;
+}
+
+.page--audit {
+  max-width: 1160px;
 }
 
 .page-head h1 {
@@ -277,6 +293,66 @@
   font-size: 0.85rem;
   border-top: 1px solid var(--border);
   background: var(--code-bg);
+}
+
+.table-foot--split {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px 16px;
+}
+
+.table-foot__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.audit-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 16px 20px;
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
+
+.audit-filters__text {
+  min-width: 180px;
+  flex: 1 1 200px;
+}
+
+.audit-filters__input {
+  min-width: 0;
+  width: 100%;
+}
+
+.audit-filters__datetime {
+  min-width: 0;
+  max-width: 16rem;
+}
+
+.audit-filters__select--grow {
+  min-width: 12rem;
+}
+
+.audit-filters__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding-bottom: 2px;
+}
+
+.cell-mono {
+  font-family: var(--mono);
+  font-size: 0.86rem;
+}
+
+.cell-diff {
+  max-width: 220px;
 }
 
 .mono {

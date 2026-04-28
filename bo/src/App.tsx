@@ -1,4 +1,5 @@
 import { BrowserRouter, Link, Navigate, Route, Routes, useParams } from 'react-router-dom'
+import { AuditPage } from './pages/AuditPage'
 import { HomePage } from './pages/HomePage'
 import { ConfigVersionHistoryPage } from './pages/ConfigVersionHistoryPage'
 import {
@@ -21,10 +22,14 @@ export default function App() {
           <Link to="/" className="app-brand">
             Сервис конфигураций
           </Link>
+          <Link to="/audit" className="app-header-link">
+            Аудит
+          </Link>
         </header>
         <main className="app-main">
           <Routes>
             <Route path="/" element={<HomePage />} />
+            <Route path="/audit" element={<AuditPage />} />
             <Route path="/services/:serviceName/configs/new" element={<ServiceConfigCreatePage />} />
             <Route
               path="/services/:serviceName/configs/:environment/history/:configKey"

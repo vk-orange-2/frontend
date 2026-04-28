@@ -79,3 +79,25 @@ export interface ConfigVersionEntry {
 export interface VersionHistoryResponse {
   versions: ConfigVersionEntry[]
 }
+
+/** Элемент GET /v1/audit (AuditLogResponse.java). */
+export interface AuditLogEntry {
+  id: string
+  configId: string
+  serviceName: string
+  environment: string
+  configKey: string
+  operation: string
+  actor: string
+  sourceIp: string | null
+  versionBefore: number | null
+  versionAfter: number | null
+  diff: unknown
+  createdAt: string
+}
+
+/** Ответ GET /v1/audit (AuditSearchResponse.java). */
+export interface AuditSearchResult {
+  entries: AuditLogEntry[]
+  totalCount: number
+}
