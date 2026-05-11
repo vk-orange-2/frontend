@@ -4,8 +4,11 @@ import type {
   ConfigListResponse,
   ConfigResponse,
   CreateConfigRequest,
+  CreateRolloutRequest,
+  CreateServiceRequest,
   ConfigVersionEntry,
   RollbackRequest,
+  RolloutResponse,
   ServiceConfigRow,
   ServiceResponse,
   VersionHistoryResponse,
@@ -108,9 +111,16 @@ function parseConfigResponse(row: unknown): ConfigResponse {
 
 function apiErrorMessage(status: number, parsed: unknown): string {
   if (parsed && typeof parsed === 'object' && 'error' in parsed) {
-    const inner = (parsed as { error?: { message?: unknown } }).error
-    if (inner && typeof inner.message === 'string' && inner.message.length > 0) {
-      return inner.message
+    const inner = (parsed as { error?: { message?: unknown; code?: unknown } }).error
+    if (inner && typeof inner === 'object') {
+      const msg =
+        typeof inner.message === 'string' && inner.message.length > 0
+          ? inner.message
+          : ''
+      const code =
+        typeof inner.code === 'string' && inner.code.length > 0 ? inner.code : ''
+      if (msg) return msg
+      if (code) return code
     }
   }
   return `Ошибка ${status}`
@@ -138,6 +148,40 @@ export async function fetchServices(): Promise<ServiceResponse[]> {
   const raw = await parseJson<unknown>(res)
   const list = Array.isArray(raw) ? raw : []
   return list.map(parseServiceResponse)
+}
+
+/**
+ * POST /v1/services — создать сервис (CreateServiceRequest.java).
+ */
+export async function createService(
+  body: CreateServiceRequest,
+): Promise<ServiceResponse> {
+  const payload: CreateServiceRequest = {
+    name: body.name,
+    ...(body.description != null && body.description !== ''
+      ? { description: body.description }
+      : {}),
+  }
+  const res = await fetch(buildUrl('/v1/services'), {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const bodyText = await res.text()
+    let parsed: unknown
+    try {
+      parsed = bodyText ? JSON.parse(bodyText) : undefined
+    } catch {
+      parsed = bodyText
+    }
+    throw new ApiError(apiErrorMessage(res.status, parsed), res.status, parsed)
+  }
+  const raw = await parseJson<unknown>(res)
+  return parseServiceResponse(raw)
 }
 
 /**
@@ -409,6 +453,232 @@ export async function fetchAuditSearch(
   const totalCount =
     typeof total === 'number' && Number.isFinite(total) ? total : 0
   return { entries, totalCount }
+}
+
+function parseRolloutResponse(row: unknown): RolloutResponse {
+  if (row == null || typeof row !== 'object') {
+    return {
+      id: '',
+      configId: '',
+      type: '',
+      status: '',
+      baselineVersion: 0,
+      targetVersion: 0,
+      totalDeployments: 0,
+      currentDeployment: 0,
+      deploymentIntervalSeconds: 0,
+    }
+  }
+  const r = row as Record<string, unknown>
+  const num = (v: unknown, d = 0): number => {
+    if (typeof v === 'number' && Number.isFinite(v)) return v
+    const n = Number.parseInt(String(v ?? ''), 10)
+    return Number.isNaN(n) ? d : n
+  }
+  const optInstant = (v: unknown): string | null | undefined => {
+    if (v === undefined) return undefined
+    if (v === null) return null
+    return String(v)
+  }
+  return {
+    id: r.id != null ? String(r.id) : '',
+    configId: r.configId != null ? String(r.configId) : '',
+    type: String(r.type ?? ''),
+    status: String(r.status ?? ''),
+    baselineVersion: num(r.baselineVersion),
+    targetVersion: num(r.targetVersion),
+    totalDeployments: num(r.totalDeployments),
+    currentDeployment: num(r.currentDeployment),
+    deploymentIntervalSeconds: num(r.deploymentIntervalSeconds),
+    nextDeploymentAt: optInstant(r.nextDeploymentAt),
+    createdAt: optInstant(r.createdAt),
+    startedAt: optInstant(r.startedAt),
+    completedAt: optInstant(r.completedAt),
+    stoppedAt: optInstant(r.stoppedAt),
+    rolledBackAt: optInstant(r.rolledBackAt),
+  }
+}
+
+async function parseJsonError(res: Response): Promise<unknown> {
+  const bodyText = await res.text()
+  if (!bodyText) return undefined
+  try {
+    return JSON.parse(bodyText) as unknown
+  } catch {
+    return bodyText
+  }
+}
+
+function rolloutPostHeaders(author?: string): Record<string, string> {
+  const h: Record<string, string> = {
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+  }
+  if (author != null && author.trim() !== '') {
+    h['X-Author'] = author.trim()
+  }
+  return h
+}
+
+async function postRolloutAction(
+  path: string,
+  author?: string,
+): Promise<RolloutResponse> {
+  const res = await fetch(buildUrl(path), {
+    method: 'POST',
+    headers: rolloutPostHeaders(author),
+    body: '{}',
+  })
+  if (!res.ok) {
+    const parsed = await parseJsonError(res)
+    throw new ApiError(apiErrorMessage(res.status, parsed), res.status, parsed)
+  }
+  const raw = await parseJson<unknown>(res)
+  return parseRolloutResponse(raw)
+}
+
+/**
+ * POST /v1/rollouts — создать и запустить доставку (CreateRolloutRequest.java).
+ */
+export async function createRollout(
+  body: CreateRolloutRequest,
+  options?: { author?: string },
+): Promise<RolloutResponse> {
+  const author = options?.author
+  const payload: Record<string, unknown> = {
+    configId: body.configId,
+    type: body.type,
+  }
+  if (body.totalDeployments != null) {
+    payload.totalDeployments = body.totalDeployments
+  }
+  if (body.deploymentIntervalSeconds != null) {
+    payload.deploymentIntervalSeconds = body.deploymentIntervalSeconds
+  }
+  const res = await fetch(buildUrl('/v1/rollouts'), {
+    method: 'POST',
+    headers: rolloutPostHeaders(author),
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const parsed = await parseJsonError(res)
+    throw new ApiError(apiErrorMessage(res.status, parsed), res.status, parsed)
+  }
+  const raw = await parseJson<unknown>(res)
+  return parseRolloutResponse(raw)
+}
+
+/**
+ * GET /v1/rollouts/{id}
+ */
+export async function fetchRollout(rolloutId: string): Promise<RolloutResponse> {
+  const res = await fetch(
+    buildUrl(`/v1/rollouts/${encodeURIComponent(rolloutId)}`),
+    { headers: { Accept: 'application/json' } },
+  )
+  if (!res.ok) {
+    const parsed = await parseJsonError(res)
+    throw new ApiError(apiErrorMessage(res.status, parsed), res.status, parsed)
+  }
+  const raw = await parseJson<unknown>(res)
+  return parseRolloutResponse(raw)
+}
+
+/**
+ * GET /v1/rollouts?configId=
+ */
+export async function fetchRolloutsForConfig(
+  configId: string,
+): Promise<RolloutResponse[]> {
+  const q = new URLSearchParams({ configId })
+  const res = await fetch(buildUrl(`/v1/rollouts?${q}`), {
+    headers: { Accept: 'application/json' },
+  })
+  if (!res.ok) {
+    const parsed = await parseJsonError(res)
+    throw new ApiError(apiErrorMessage(res.status, parsed), res.status, parsed)
+  }
+  const raw = await parseJson<unknown>(res)
+  if (!Array.isArray(raw)) return []
+  return raw.map(parseRolloutResponse)
+}
+
+/**
+ * GET /v1/rollouts/active?serviceName=&environment=
+ */
+export async function fetchActiveRollouts(
+  serviceName: string,
+  environment: string,
+): Promise<RolloutResponse[]> {
+  const q = new URLSearchParams({ serviceName, environment })
+  const res = await fetch(buildUrl(`/v1/rollouts/active?${q}`), {
+    headers: { Accept: 'application/json' },
+  })
+  if (!res.ok) {
+    const parsed = await parseJsonError(res)
+    throw new ApiError(apiErrorMessage(res.status, parsed), res.status, parsed)
+  }
+  const raw = await parseJson<unknown>(res)
+  if (!Array.isArray(raw)) return []
+  return raw.map(parseRolloutResponse)
+}
+
+/**
+ * GET /v1/configs/{configId}/active-rollout — 204 если активного нет.
+ */
+export async function fetchActiveRolloutForConfig(
+  configId: string,
+): Promise<RolloutResponse | null> {
+  const res = await fetch(
+    buildUrl(`/v1/configs/${encodeURIComponent(configId)}/active-rollout`),
+    { headers: { Accept: 'application/json' } },
+  )
+  if (res.status === 204) return null
+  if (!res.ok) {
+    const parsed = await parseJsonError(res)
+    throw new ApiError(apiErrorMessage(res.status, parsed), res.status, parsed)
+  }
+  const raw = await parseJson<unknown>(res)
+  return parseRolloutResponse(raw)
+}
+
+/**
+ * POST /v1/rollouts/{id}/stop
+ */
+export async function stopRollout(
+  rolloutId: string,
+  options?: { author?: string },
+): Promise<RolloutResponse> {
+  return postRolloutAction(
+    `/v1/rollouts/${encodeURIComponent(rolloutId)}/stop`,
+    options?.author,
+  )
+}
+
+/**
+ * POST /v1/rollouts/{id}/rollback
+ */
+export async function rollbackRollout(
+  rolloutId: string,
+  options?: { author?: string },
+): Promise<RolloutResponse> {
+  return postRolloutAction(
+    `/v1/rollouts/${encodeURIComponent(rolloutId)}/rollback`,
+    options?.author,
+  )
+}
+
+/**
+ * POST /v1/rollouts/{id}/deploy-next
+ */
+export async function deployNextRollout(
+  rolloutId: string,
+  options?: { author?: string },
+): Promise<RolloutResponse> {
+  return postRolloutAction(
+    `/v1/rollouts/${encodeURIComponent(rolloutId)}/deploy-next`,
+    options?.author,
+  )
 }
 
 export { ApiError, DEFAULT_AUDIT_PAGE_SIZE }

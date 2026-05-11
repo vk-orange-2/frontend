@@ -2,13 +2,25 @@ import { useCallback, useEffect, useId, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
   ApiError,
+  createRollout,
+  deployNextRollout,
   fetchConfigVersionHistory,
   fetchConfigsForEnvironment,
+  fetchRolloutsForConfig,
   rollbackConfig,
+  rollbackRollout,
+  stopRollout,
 } from '../api/client'
-import type { ConfigVersionEntry, ServiceConfigRow } from '../api/types'
+import type { ConfigVersionEntry, RolloutResponse, ServiceConfigRow } from '../api/types'
 import { ConfigVersionComparePanel } from './ConfigVersionComparePanel'
 import { configsListPath, editConfigPath } from './configPaths'
+import {
+  DeliverRolloutDialog,
+  type DeliverRolloutParams,
+} from './ServiceConfigEditorPages'
+
+/** Интервал опроса списка rollout на странице истории. */
+const ROLLOUTS_POLL_INTERVAL_MS = 10_000
 
 const changeTypeLabel: Record<string, string> = {
   create: 'Создание',
@@ -31,7 +43,7 @@ function formatWhen(iso: string): string {
   if (!iso) return '—'
   const d = Date.parse(iso)
   if (Number.isNaN(d)) return iso
-  return new Date(d).toLocaleString('ru-RU', {
+  return new Date(iso).toLocaleString('ru-RU', {
     dateStyle: 'medium',
     timeStyle: 'short',
   })
@@ -40,6 +52,33 @@ function formatWhen(iso: string): string {
 function pillModifier(env: string): string {
   if (env === 'dev' || env === 'stage' || env === 'prod') return env
   return 'other'
+}
+
+function isActiveRolloutStatus(status: string): boolean {
+  return status === 'pending' || status === 'in_progress'
+}
+
+const rolloutTypeLabel: Record<string, string> = {
+  instant: 'Мгновенная',
+  gradual: 'Постепенная',
+}
+
+const rolloutStatusLabel: Record<string, string> = {
+  pending: 'Ожидание',
+  in_progress: 'В процессе',
+  completed: 'Завершена',
+  stopped: 'Остановлена',
+  rolled_back: 'Откат доставки',
+}
+
+function formatRolloutInstant(iso: string | null | undefined): string {
+  if (iso == null || iso === '') return '—'
+  const d = Date.parse(iso)
+  if (Number.isNaN(d)) return iso
+  return new Date(iso).toLocaleString('ru-RU', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  })
 }
 
 export function ConfigVersionHistoryPage() {
@@ -63,6 +102,25 @@ export function ConfigVersionHistoryPage() {
   const [versionsError, setVersionsError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
+  const [rollouts, setRollouts] = useState<RolloutResponse[] | null>(null)
+  const [rolloutsLoading, setRolloutsLoading] = useState(false)
+  const [rolloutsError, setRolloutsError] = useState<string | null>(null)
+  const [rolloutsOpen, setRolloutsOpen] = useState(false)
+
+  const [deployDialogOpen, setDeployDialogOpen] = useState(false)
+  const [deploySubmitting, setDeploySubmitting] = useState(false)
+  const [deployDialogError, setDeployDialogError] = useState<string | null>(null)
+
+  const [rolloutBannerAction, setRolloutBannerAction] = useState<
+    null | 'stop' | 'deploy-next'
+  >(null)
+  const [rolloutBannerError, setRolloutBannerError] = useState<string | null>(null)
+
+  const [rolloutRollbackPendingId, setRolloutRollbackPendingId] = useState<
+    string | null
+  >(null)
+  const [rolloutTableError, setRolloutTableError] = useState<string | null>(null)
+
   const [rollbackTarget, setRollbackTarget] = useState<ConfigVersionEntry | null>(null)
   const [rollbackComment, setRollbackComment] = useState('')
   const [rollbackSubmitting, setRollbackSubmitting] = useState(false)
@@ -74,13 +132,139 @@ export function ConfigVersionHistoryPage() {
 
   const titleId = useId()
   const descId = useId()
+  const rolloutsToggleId = useId()
+  const rolloutsPanelId = useId()
 
   const refetchAfterRollback = useCallback(
     async (configId: string) => {
       const list = await fetchConfigVersionHistory(configId)
       setVersions(list)
+      try {
+        const ro = await fetchRolloutsForConfig(configId)
+        setRollouts(ro)
+        setRolloutsError(null)
+      } catch (e: unknown) {
+        setRolloutsError(
+          e instanceof Error ? e.message : 'Не удалось обновить список доставки',
+        )
+      }
     },
     [],
+  )
+
+  const confirmRolloutFromHistory = useCallback(
+    async (params: DeliverRolloutParams) => {
+      if (!row?.id) return
+      setDeployDialogError(null)
+      setDeploySubmitting(true)
+      try {
+        await createRollout(
+          {
+            configId: row.id,
+            type: params.type,
+            ...(params.type === 'gradual'
+              ? {
+                  totalDeployments: params.totalDeployments,
+                  deploymentIntervalSeconds: params.deploymentIntervalSeconds,
+                }
+              : {}),
+          },
+          { author: params.author },
+        )
+        setDeployDialogOpen(false)
+        const ro = await fetchRolloutsForConfig(row.id)
+        setRollouts(ro)
+        setRolloutsError(null)
+        setRolloutsOpen(true)
+      } catch (e: unknown) {
+        setDeployDialogError(
+          e instanceof Error ? e.message : 'Не удалось запустить доставку',
+        )
+      } finally {
+        setDeploySubmitting(false)
+      }
+    },
+    [row?.id],
+  )
+
+  const refetchRolloutsOnly = useCallback(async () => {
+    if (!row?.id) return
+    try {
+      const ro = await fetchRolloutsForConfig(row.id)
+      setRollouts(ro)
+      setRolloutsError(null)
+    } catch (e: unknown) {
+      setRolloutsError(
+        e instanceof Error ? e.message : 'Не удалось обновить список доставки',
+      )
+    }
+  }, [row?.id])
+
+  const handleBannerStop = useCallback(async () => {
+    if (!rollouts) return
+    const active = rollouts.find((r) => isActiveRolloutStatus(r.status))
+    if (!active?.id) return
+    setRolloutBannerError(null)
+    setRolloutBannerAction('stop')
+    try {
+      await stopRollout(active.id)
+      await refetchRolloutsOnly()
+    } catch (e: unknown) {
+      setRolloutBannerError(
+        e instanceof Error ? e.message : 'Не удалось остановить доставку',
+      )
+    } finally {
+      setRolloutBannerAction(null)
+    }
+  }, [rollouts, refetchRolloutsOnly])
+
+  const handleBannerDeployNext = useCallback(async () => {
+    if (!rollouts) return
+    const active = rollouts.find((r) => isActiveRolloutStatus(r.status))
+    if (!active?.id) return
+    setRolloutBannerError(null)
+    setRolloutBannerAction('deploy-next')
+    try {
+      await deployNextRollout(active.id)
+      await refetchRolloutsOnly()
+    } catch (e: unknown) {
+      setRolloutBannerError(
+        e instanceof Error ? e.message : 'Не удалось выполнить следующий этап',
+      )
+    } finally {
+      setRolloutBannerAction(null)
+    }
+  }, [rollouts, refetchRolloutsOnly])
+
+  const handleRolloutTableRollback = useCallback(
+    async (ro: RolloutResponse) => {
+      if (!isActiveRolloutStatus(ro.status) || !ro.id) return
+      if (!row?.id || !serviceName || !environment || !configKey) return
+      const configId = row.id
+      setRolloutTableError(null)
+      setRolloutRollbackPendingId(ro.id)
+      try {
+        await rollbackRollout(ro.id)
+        const [cfgRows, hist, rolloutList] = await Promise.all([
+          fetchConfigsForEnvironment(serviceName, environment),
+          fetchConfigVersionHistory(configId),
+          fetchRolloutsForConfig(configId),
+        ])
+        const found = cfgRows.find((r) => r.configKey === configKey) ?? null
+        setRow(found)
+        setVersions(hist)
+        setVersionsError(null)
+        setRollouts(rolloutList)
+        setRolloutsError(null)
+      } catch (e: unknown) {
+        setRolloutTableError(
+          e instanceof Error ? e.message : 'Не удалось откатить доставку',
+        )
+      } finally {
+        setRolloutRollbackPendingId(null)
+      }
+    },
+    [row?.id, serviceName, environment, configKey],
   )
 
   const closeRollbackDialog = useCallback(() => {
@@ -206,6 +390,53 @@ export function ConfigVersionHistoryPage() {
     }
   }, [serviceName, environment, configKey])
 
+  useEffect(() => {
+    if (!row?.id) {
+      setRollouts(null)
+      setRolloutsLoading(false)
+      setRolloutsError(null)
+      return
+    }
+    const configId = row.id
+    let cancelled = false
+
+    async function loadRollouts(isInitial: boolean) {
+      if (isInitial) {
+        setRolloutsLoading(true)
+        setRolloutsError(null)
+      }
+      try {
+        const list = await fetchRolloutsForConfig(configId)
+        if (!cancelled) {
+          setRollouts(list)
+          setRolloutsError(null)
+          if (isInitial) setRolloutsLoading(false)
+        }
+      } catch (e: unknown) {
+        if (!cancelled) {
+          const msg =
+            e instanceof Error ? e.message : 'Не удалось загрузить доставку'
+          if (isInitial) {
+            setRollouts([])
+            setRolloutsLoading(false)
+          }
+          setRolloutsError(msg)
+        }
+      }
+    }
+
+    void loadRollouts(true)
+
+    const intervalId = window.setInterval(() => {
+      void loadRollouts(false)
+    }, ROLLOUTS_POLL_INTERVAL_MS)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(intervalId)
+    }
+  }, [row?.id])
+
   if (!serviceName || !environment || !configKey) {
     return (
       <div className="page">
@@ -214,6 +445,9 @@ export function ConfigVersionHistoryPage() {
       </div>
     )
   }
+
+  const activeRolloutBanner =
+    rollouts?.find((r) => isActiveRolloutStatus(r.status)) ?? null
 
   return (
     <div className="page page--wide">
@@ -245,6 +479,28 @@ export function ConfigVersionHistoryPage() {
         </div>
         {row?.id ? (
           <div className="page-toolbar">
+            <button
+              type="button"
+              className="btn btn--primary"
+              disabled={
+                rolloutsLoading ||
+                Boolean(activeRolloutBanner) ||
+                deploySubmitting
+              }
+              title={
+                rolloutsLoading
+                  ? 'Загрузка состояния доставки…'
+                  : activeRolloutBanner
+                    ? 'Уже есть активная доставка для этого конфига'
+                    : undefined
+              }
+              onClick={() => {
+                setDeployDialogError(null)
+                setDeployDialogOpen(true)
+              }}
+            >
+              Раскатить конфиг
+            </button>
             <Link
               className="btn btn--ghost"
               to={editConfigPath(serviceName, environment, configKey)}
@@ -271,6 +527,188 @@ export function ConfigVersionHistoryPage() {
 
       {!loading && !loadError && row && row.id && versionsError && (
         <p className="error-banner">{versionsError}</p>
+      )}
+
+      {!loading && !loadError && row && row.id && (
+        <div className="rollouts-delivery-section">
+          {!rolloutsLoading && activeRolloutBanner ? (
+            <>
+              <div className="rollout-banner rollout-banner--compact" role="status">
+                <p className="rollout-banner__head">Активная доставка</p>
+                <p className="rollout-banner__meta mono">
+                  Тип:{' '}
+                  {rolloutTypeLabel[activeRolloutBanner.type] ??
+                    activeRolloutBanner.type}{' '}
+                  · Статус:{' '}
+                  {rolloutStatusLabel[activeRolloutBanner.status] ??
+                    activeRolloutBanner.status}
+                  <br />
+                  Версии: {activeRolloutBanner.baselineVersion} →{' '}
+                  {activeRolloutBanner.targetVersion} · Этап{' '}
+                  {activeRolloutBanner.currentDeployment}/
+                  {activeRolloutBanner.totalDeployments}
+                  <br />
+                  Следующий этап:{' '}
+                  {activeRolloutBanner.nextDeploymentAt != null &&
+                  activeRolloutBanner.nextDeploymentAt !== ''
+                    ? formatRolloutInstant(activeRolloutBanner.nextDeploymentAt)
+                    : '—'}
+                </p>
+                <div className="rollout-banner__actions">
+                  <button
+                    type="button"
+                    className="btn btn--small btn--ghost"
+                    disabled={
+                      rolloutBannerAction != null || rolloutRollbackPendingId !== null
+                    }
+                    onClick={() => void handleBannerStop()}
+                  >
+                    {rolloutBannerAction === 'stop' ? 'Остановка…' : 'Отменить'}
+                  </button>
+                  {activeRolloutBanner.type === 'gradual' ? (
+                    <button
+                      type="button"
+                      className="btn btn--small btn--ghost"
+                      disabled={
+                        rolloutBannerAction != null || rolloutRollbackPendingId !== null
+                      }
+                      onClick={() => void handleBannerDeployNext()}
+                    >
+                      {rolloutBannerAction === 'deploy-next'
+                        ? 'Этап…'
+                        : 'Следующий этап'}
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="btn btn--small btn--ghost"
+                    disabled={
+                      rolloutBannerAction != null || rolloutRollbackPendingId !== null
+                    }
+                    title="Откатить доставку к baseline (новая версия конфига)"
+                    onClick={() => void handleRolloutTableRollback(activeRolloutBanner)}
+                  >
+                    {rolloutRollbackPendingId === activeRolloutBanner.id
+                      ? 'Откат…'
+                      : 'Откатить'}
+                  </button>
+                </div>
+              </div>
+              {rolloutBannerError ? (
+                <p className="error-banner" role="alert">
+                  {rolloutBannerError}
+                </p>
+              ) : null}
+            </>
+          ) : null}
+
+          <div className="rollouts-disclosure">
+            <button
+              type="button"
+              id={rolloutsToggleId}
+              className="rollouts-disclosure__toggle"
+              aria-expanded={rolloutsOpen}
+              aria-controls={rolloutsPanelId}
+              onClick={() => setRolloutsOpen((o) => !o)}
+            >
+              <span className="rollouts-disclosure__chevron" aria-hidden="true">
+                {rolloutsOpen ? '▼' : '▶'}
+              </span>
+              <span>
+                {rolloutsOpen ? 'Скрыть' : 'Показать'} историю доставки
+                {!rolloutsOpen && rollouts && rollouts.length > 0 ? (
+                  <span className="muted"> ({rollouts.length})</span>
+                ) : null}
+              </span>
+            </button>
+
+            {rolloutsOpen ? (
+              <div
+                id={rolloutsPanelId}
+                className="rollouts-disclosure__panel"
+                role="region"
+                aria-labelledby={rolloutsToggleId}
+              >
+                {rolloutsLoading && (
+                  <p className="muted">Загрузка состояния доставки…</p>
+                )}
+
+                {!rolloutsLoading && rolloutsError && (
+                  <p className="error-banner">{rolloutsError}</p>
+                )}
+
+                {!rolloutsLoading && rolloutTableError && (
+                  <p className="error-banner" role="alert">
+                    {rolloutTableError}
+                  </p>
+                )}
+
+                {!rolloutsLoading &&
+                  !rolloutsError &&
+                  rollouts &&
+                  rollouts.length > 0 && (
+                    <section
+                      className="rollouts-history"
+                      aria-labelledby="rollouts-history-title"
+                    >
+                      <h2 id="rollouts-history-title" className="rollouts-history__title">
+                        Доставка конфигурации
+                      </h2>
+                      <div className="table-wrap rollouts-history__table-wrap">
+                        <table className="data-table">
+                          <thead>
+                            <tr>
+                              <th>Создан</th>
+                              <th>Тип</th>
+                              <th>Статус</th>
+                              <th>Версии</th>
+                              <th>Этап</th>
+                              <th>Завершение</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rollouts.map((ro) => {
+                              const endLabel =
+                                ro.rolledBackAt != null && ro.rolledBackAt !== ''
+                                  ? formatRolloutInstant(ro.rolledBackAt)
+                                  : ro.stoppedAt != null && ro.stoppedAt !== ''
+                                    ? formatRolloutInstant(ro.stoppedAt)
+                                    : ro.completedAt != null && ro.completedAt !== ''
+                                      ? formatRolloutInstant(ro.completedAt)
+                                      : '—'
+                              return (
+                                <tr key={ro.id}>
+                                  <td>{formatRolloutInstant(ro.createdAt)}</td>
+                                  <td>{rolloutTypeLabel[ro.type] ?? ro.type}</td>
+                                  <td>{rolloutStatusLabel[ro.status] ?? ro.status}</td>
+                                  <td className="mono">
+                                    {ro.baselineVersion} → {ro.targetVersion}
+                                  </td>
+                                  <td className="mono">
+                                    {ro.currentDeployment}/{ro.totalDeployments}
+                                  </td>
+                                  <td>{endLabel}</td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </section>
+                  )}
+
+                {!rolloutsLoading &&
+                  !rolloutsError &&
+                  rollouts &&
+                  rollouts.length === 0 && (
+                    <p className="muted">
+                      Записей о доставке (rollout) для этого ключа пока нет.
+                    </p>
+                  )}
+              </div>
+            ) : null}
+          </div>
+        </div>
       )}
 
       {!loading && !loadError && row && row.id && !versionsError && rollbackResult && (
@@ -366,6 +804,17 @@ export function ConfigVersionHistoryPage() {
           })}
         </ol>
       )}
+
+      <DeliverRolloutDialog
+        open={deployDialogOpen}
+        onClose={() => setDeployDialogOpen(false)}
+        dialogTitle="Раскатить конфиг"
+        description="Будет запущена доставка текущей версии конфигурации клиентам (без изменения payload)."
+        error={deployDialogError}
+        submitting={deploySubmitting}
+        confirmLabel="Запустить доставку"
+        onConfirm={confirmRolloutFromHistory}
+      />
 
       {rollbackTarget && row?.id ? (
         <div

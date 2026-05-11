@@ -41,6 +41,12 @@ export interface ServiceConfigRow extends ConfigResponse {
   environment: string
 }
 
+/** Тело POST /v1/services (CreateServiceRequest.java). */
+export interface CreateServiceRequest {
+  name: string
+  description?: string
+}
+
 /** Тело POST /v1/configs (CreateConfigRequest.java). */
 export interface CreateConfigRequest {
   service: string
@@ -100,4 +106,31 @@ export interface AuditLogEntry {
 export interface AuditSearchResult {
   entries: AuditLogEntry[]
   totalCount: number
+}
+
+/** Тело POST /v1/rollouts (CreateRolloutRequest.java). */
+export interface CreateRolloutRequest {
+  configId: string
+  type: 'instant' | 'gradual'
+  totalDeployments?: number
+  deploymentIntervalSeconds?: number
+}
+
+/** Ответ rollout-эндпоинтов (RolloutResponse.java). */
+export interface RolloutResponse {
+  id: string
+  configId: string
+  type: string
+  status: string
+  baselineVersion: number
+  targetVersion: number
+  totalDeployments: number
+  currentDeployment: number
+  deploymentIntervalSeconds: number
+  nextDeploymentAt?: string | null
+  createdAt?: string | null
+  startedAt?: string | null
+  completedAt?: string | null
+  stoppedAt?: string | null
+  rolledBackAt?: string | null
 }
