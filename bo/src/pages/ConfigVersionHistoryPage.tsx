@@ -12,6 +12,7 @@ import {
   stopRollout,
 } from '../api/client'
 import type { ConfigVersionEntry, RolloutResponse, ServiceConfigRow } from '../api/types'
+import { SecretPayloadPre } from '../components/SecretPayloadReveal'
 import { ConfigVersionComparePanel } from './ConfigVersionComparePanel'
 import { configsListPath, editConfigPath } from './configPaths'
 import {
@@ -546,6 +547,14 @@ export function ConfigVersionHistoryPage() {
           <h1>История версий</h1>
           <p className="page-sub version-history__subtitle">
             <code className="mono">{configKey}</code>
+            {row?.isSecret ? (
+              <>
+                {' '}
+                <span className="badge badge--inline badge--secret" title="Секрет">
+                  секрет
+                </span>
+              </>
+            ) : null}
             {row ? (
               <>
                 {' '}
@@ -846,7 +855,7 @@ export function ConfigVersionHistoryPage() {
               role="region"
               aria-labelledby={compareToggleId}
             >
-              <ConfigVersionComparePanel versions={versions} />
+              <ConfigVersionComparePanel versions={versions} isSecret={row.isSecret} />
             </div>
           ) : null}
         </div>
@@ -908,11 +917,12 @@ export function ConfigVersionHistoryPage() {
                   {v.comment ? <p className="version-card__comment">{v.comment}</p> : null}
                   <details className="version-card__payload">
                     <summary>Payload</summary>
-                    <pre className="version-card__pre mono">
-                      {v.payload == null
-                        ? 'null'
-                        : formatPayload(v.payload)}
-                    </pre>
+                    <SecretPayloadPre
+                      isSecret={row.isSecret}
+                      fullText={
+                        v.payload == null ? 'null' : formatPayload(v.payload)
+                      }
+                    />
                   </details>
                 </article>
               </li>

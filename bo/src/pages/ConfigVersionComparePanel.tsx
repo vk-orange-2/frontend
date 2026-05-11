@@ -9,6 +9,8 @@ import type { DiffRow } from '../lib/configPayloadDiff'
 
 type Props = {
   versions: ConfigVersionEntry[]
+  /** Скрыть сравнение payload (секретные конфигурации). */
+  isSecret?: boolean
 }
 
 type LinePart = { text: string; type: 'same' | 'add' | 'rem' }
@@ -227,7 +229,7 @@ function ConfigVersionCompareBody({ versions }: BodyProps) {
 /**
  * Сравнение payload двух выбранных версий: от «было» к «стало».
  */
-export function ConfigVersionComparePanel({ versions }: Props) {
+export function ConfigVersionComparePanel({ versions, isSecret }: Props) {
   const distinct = useMemo(
     () => new Set(versions.map((v) => v.version)).size,
     [versions],
@@ -236,6 +238,18 @@ export function ConfigVersionComparePanel({ versions }: Props) {
     () => versions.map((v) => `${v.version}:${v.id ?? ''}`).join('|'),
     [versions],
   )
+
+  if (isSecret) {
+    return (
+      <section className="config-compare" aria-label="Сравнение версий">
+        <h2 className="config-compare__title">Сравнение версий</h2>
+        <p className="muted">
+          Для секретных конфигураций подробное сравнение payload отключено. Измените значение на странице
+          редактирования при необходимости.
+        </p>
+      </section>
+    )
+  }
 
   if (distinct < 2) {
     return (

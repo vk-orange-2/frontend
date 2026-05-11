@@ -288,6 +288,7 @@ export function ServiceConfigCreatePage() {
   const [env, setEnv] = useState<EnvChoice>('dev')
   const [configKey, setConfigKey] = useState('')
   const [valueText, setValueText] = useState('{\n  \n}')
+  const [isSecret, setIsSecret] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -317,6 +318,7 @@ export function ServiceConfigCreatePage() {
         env,
         key: configKey.trim(),
         value,
+        ...(isSecret ? { isSecret: true } : {}),
       })
       const configId = created.id
       if (!configId) {
@@ -365,6 +367,7 @@ export function ServiceConfigCreatePage() {
         env,
         key: configKey.trim(),
         value,
+        ...(isSecret ? { isSecret: true } : {}),
       })
       navigate(configsListPath(serviceName))
     } catch (err) {
@@ -429,6 +432,19 @@ export function ServiceConfigCreatePage() {
             autoComplete="off"
             spellCheck={false}
           />
+        </label>
+
+        <label className="config-form__field config-form__field--checkbox">
+          <input
+            type="checkbox"
+            checked={isSecret}
+            onChange={(ev) => setIsSecret(ev.target.checked)}
+          />{' '}
+          <span>Секретное значение</span>
+          <span className="muted config-form__checkbox-hint">
+            В списке свойств и в истории версий payload не показывается; в редакторе значение по-прежнему
+            доступно после сохранения.
+          </span>
         </label>
 
         <label className="config-form__field">
@@ -809,6 +825,16 @@ export function ServiceConfigEditPage() {
           <p className="error-banner" role="alert">
             {rolloutMutationError}
           </p>
+        ) : null}
+
+        {row.isSecret ? (
+          <div className="secret-config-banner" role="status">
+            <p className="secret-config-banner__text">
+              <span className="badge badge--secret">секрет</span> Это секретная конфигурация: в списке и в
+              истории версий содержимое скрыто; здесь показывается актуальный payload с сервера (для правки и
+              доставки).
+            </p>
+          </div>
         ) : null}
 
         <div className="config-form__field">

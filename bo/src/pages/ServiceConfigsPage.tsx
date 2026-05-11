@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { fetchServiceConfigs } from '../api/client'
 import type { ServiceConfigRow } from '../api/types'
+import { SecretPayloadTableCell } from '../components/SecretPayloadReveal'
 import { editConfigPath, versionHistoryPath } from './configPaths'
 
 type EnvFilterChoice = 'dev' | 'stage' | 'prod'
@@ -15,11 +16,6 @@ const envLabels: Record<string, string> = {
 function pillModifier(env: string): string {
   if (env === 'dev' || env === 'stage' || env === 'prod') return env
   return 'other'
-}
-
-function previewValue(value: string, max = 72): string {
-  if (value.length <= max) return value
-  return `${value.slice(0, max)}…`
 }
 
 function formatPayload(payload: unknown): string {
@@ -151,17 +147,30 @@ export function ServiceConfigsPage() {
                 </thead>
                 <tbody>
                   {displayRows.map((c: ServiceConfigRow) => {
-                    const valueStr = formatPayload(c.latestVersion.payload)
+                    const rawStr = formatPayload(c.latestVersion.payload)
                     return (
                       <tr key={`${c.environment}:${c.configKey}`}>
-                        <td className="mono">{c.configKey}</td>
+                        <td className="mono">
+                          {c.configKey}
+                          {c.isSecret ? (
+                            <>
+                              {' '}
+                              <span className="badge badge--inline badge--secret" title="Секрет">
+                                секрет
+                              </span>
+                            </>
+                          ) : null}
+                        </td>
                         <td>
                           <span className={`pill pill--${pillModifier(c.environment)}`}>
                             {envLabels[c.environment] ?? c.environment}
                           </span>
                         </td>
-                        <td className="mono cell-value" title={valueStr}>
-                          {previewValue(valueStr)}
+                        <td className="mono cell-value">
+                          <SecretPayloadTableCell
+                            isSecret={c.isSecret}
+                            fullText={rawStr}
+                          />
                         </td>
                         <td className="mono">{c.currentVersion}</td>
                         <td className="data-table__actions">
