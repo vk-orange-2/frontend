@@ -640,6 +640,14 @@
   margin-top: 0;
 }
 
+.config-compare-disclosure {
+  margin-bottom: 32px;
+}
+
+.config-compare-disclosure .config-compare {
+  margin-bottom: 0;
+}
+
 .config-form__hint {
   margin: -8px 0 0;
   font-size: 0.88rem;
