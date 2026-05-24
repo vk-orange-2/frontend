@@ -16,6 +16,7 @@ import { SecretPayloadPre } from '../components/SecretPayloadReveal'
 import { ConfigVersionComparePanel } from './ConfigVersionComparePanel'
 import { configsListPath, editConfigPath } from './configPaths'
 import {
+  buildCreateRolloutRequest,
   DeliverRolloutDialog,
   type DeliverRolloutParams,
 } from './ServiceConfigEditorPages'
@@ -62,6 +63,17 @@ function isActiveRolloutStatus(status: string): boolean {
 const rolloutTypeLabel: Record<string, string> = {
   instant: 'Мгновенная',
   gradual: 'Постепенная',
+  canary: 'Canary',
+}
+
+function formatRolloutTypeCell(
+  ro: Pick<RolloutResponse, 'type' | 'canaryPercentage'>,
+): string {
+  const base = rolloutTypeLabel[ro.type] ?? ro.type
+  if (ro.type === 'canary' && ro.canaryPercentage != null) {
+    return `${base} (${ro.canaryPercentage}%)`
+  }
+  return base
 }
 
 const rolloutStatusLabel: Record<string, string> = {
@@ -129,6 +141,7 @@ export function ConfigVersionHistoryPage() {
     useState<DeliverRolloutParams['type']>('instant')
   const [rollbackDeliverTotalDeployments, setRollbackDeliverTotalDeployments] = useState(4)
   const [rollbackDeliverInterval, setRollbackDeliverInterval] = useState(60)
+  const [rollbackDeliverCanaryPercentage, setRollbackDeliverCanaryPercentage] = useState(5)
   const [rollbackDeliverAuthor, setRollbackDeliverAuthor] = useState('')
   const [rollbackSubmitting, setRollbackSubmitting] = useState(false)
   const [rollbackError, setRollbackError] = useState<string | null>(null)
@@ -147,6 +160,7 @@ export function ConfigVersionHistoryPage() {
   const rollbackDeliverRadioName = useId()
   const rollbackDeliverStepsId = useId()
   const rollbackDeliverIntervalId = useId()
+  const rollbackDeliverCanaryPctId = useId()
   const rollbackDeliverAuthorId = useId()
 
   const refetchAfterRollback = useCallback(
@@ -173,16 +187,7 @@ export function ConfigVersionHistoryPage() {
       setDeploySubmitting(true)
       try {
         await createRollout(
-          {
-            configId: row.id,
-            type: params.type,
-            ...(params.type === 'gradual'
-              ? {
-                  totalDeployments: params.totalDeployments,
-                  deploymentIntervalSeconds: params.deploymentIntervalSeconds,
-                }
-              : {}),
-          },
+          buildCreateRolloutRequest(row.id, params),
           { author: params.author },
         )
         setDeployDialogOpen(false)
@@ -288,6 +293,7 @@ export function ConfigVersionHistoryPage() {
     setRollbackDeliverType('instant')
     setRollbackDeliverTotalDeployments(4)
     setRollbackDeliverInterval(60)
+    setRollbackDeliverCanaryPercentage(5)
     setRollbackDeliverAuthor('')
     setRollbackError(null)
   }, [rollbackSubmitting])
@@ -318,8 +324,7 @@ export function ConfigVersionHistoryPage() {
           : null,
       )
       await createRollout(
-        {
-          configId: res.id ?? configId,
+        buildCreateRolloutRequest(res.id ?? configId, {
           type: rollbackDeliverType,
           ...(rollbackDeliverType === 'gradual'
             ? {
@@ -327,7 +332,10 @@ export function ConfigVersionHistoryPage() {
                 deploymentIntervalSeconds: rollbackDeliverInterval,
               }
             : {}),
-        },
+          ...(rollbackDeliverType === 'canary'
+            ? { canaryPercentage: rollbackDeliverCanaryPercentage }
+            : {}),
+        }),
         {
           author:
             rollbackDeliverAuthor.trim() !== ''
@@ -348,6 +356,7 @@ export function ConfigVersionHistoryPage() {
       setRollbackDeliverType('instant')
       setRollbackDeliverTotalDeployments(4)
       setRollbackDeliverInterval(60)
+      setRollbackDeliverCanaryPercentage(5)
       setRollbackDeliverAuthor('')
     } catch (e: unknown) {
       const msg =
@@ -373,6 +382,7 @@ export function ConfigVersionHistoryPage() {
         setRollbackDeliverType('instant')
         setRollbackDeliverTotalDeployments(4)
         setRollbackDeliverInterval(60)
+        setRollbackDeliverCanaryPercentage(5)
         setRollbackDeliverAuthor('')
         setRolloutTableError(`Откат выполнен, но доставка не запущена: ${msg}`)
         return
@@ -388,6 +398,7 @@ export function ConfigVersionHistoryPage() {
     rollbackDeliverType,
     rollbackDeliverTotalDeployments,
     rollbackDeliverInterval,
+    rollbackDeliverCanaryPercentage,
     rollbackDeliverAuthor,
     refetchAfterRollback,
   ])
@@ -402,6 +413,7 @@ export function ConfigVersionHistoryPage() {
         setRollbackDeliverType('instant')
         setRollbackDeliverTotalDeployments(4)
         setRollbackDeliverInterval(60)
+        setRollbackDeliverCanaryPercentage(5)
         setRollbackDeliverAuthor('')
       }
     }
@@ -418,6 +430,7 @@ export function ConfigVersionHistoryPage() {
       setRollbackDeliverType('instant')
       setRollbackDeliverTotalDeployments(4)
       setRollbackDeliverInterval(60)
+      setRollbackDeliverCanaryPercentage(5)
       setRollbackDeliverAuthor('')
       return
     }
@@ -434,6 +447,7 @@ export function ConfigVersionHistoryPage() {
     setRollbackDeliverType('instant')
     setRollbackDeliverTotalDeployments(4)
     setRollbackDeliverInterval(60)
+    setRollbackDeliverCanaryPercentage(5)
     setRollbackDeliverAuthor('')
 
     let rowAfterFetch: ServiceConfigRow | null = null
@@ -770,7 +784,7 @@ export function ConfigVersionHistoryPage() {
                               return (
                                 <tr key={ro.id}>
                                   <td>{formatRolloutInstant(ro.createdAt)}</td>
-                                  <td>{rolloutTypeLabel[ro.type] ?? ro.type}</td>
+                                  <td>{formatRolloutTypeCell(ro)}</td>
                                   <td>{rolloutStatusLabel[ro.status] ?? ro.status}</td>
                                   <td className="mono">
                                     {ro.baselineVersion} → {ro.targetVersion}
@@ -897,6 +911,7 @@ export function ConfigVersionHistoryPage() {
                           setRollbackDeliverType('instant')
                           setRollbackDeliverTotalDeployments(4)
                           setRollbackDeliverInterval(60)
+                          setRollbackDeliverCanaryPercentage(5)
                           setRollbackDeliverAuthor('')
                         }}
                       >
@@ -1004,6 +1019,16 @@ export function ConfigVersionHistoryPage() {
                 />{' '}
                 Постепенно
               </label>
+              <label className="rollback-dialog__field">
+                <input
+                  type="radio"
+                  name={rollbackDeliverRadioName}
+                  checked={rollbackDeliverType === 'canary'}
+                  disabled={rollbackSubmitting}
+                  onChange={() => setRollbackDeliverType('canary')}
+                />{' '}
+                Canary
+              </label>
             </fieldset>
 
             {rollbackDeliverType === 'gradual' ? (
@@ -1045,6 +1070,29 @@ export function ConfigVersionHistoryPage() {
                   />
                 </label>
               </>
+            ) : null}
+
+            {rollbackDeliverType === 'canary' ? (
+              <label className="rollback-dialog__field" htmlFor={rollbackDeliverCanaryPctId}>
+                <span className="rollback-dialog__label">Доля canary-инстансов, % (1–99)</span>
+                <input
+                  id={rollbackDeliverCanaryPctId}
+                  className="config-form__input"
+                  type="number"
+                  min={1}
+                  max={99}
+                  value={rollbackDeliverCanaryPercentage}
+                  disabled={rollbackSubmitting}
+                  onChange={(ev) =>
+                    setRollbackDeliverCanaryPercentage(
+                      Math.min(
+                        99,
+                        Math.max(1, Number.parseInt(ev.target.value, 10) || 1),
+                      ),
+                    )
+                  }
+                />
+              </label>
             ) : null}
 
             <label className="rollback-dialog__field" htmlFor={rollbackDeliverAuthorId}>

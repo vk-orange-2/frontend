@@ -490,6 +490,8 @@ function parseRolloutResponse(row: unknown): RolloutResponse {
     totalDeployments: num(r.totalDeployments),
     currentDeployment: num(r.currentDeployment),
     deploymentIntervalSeconds: num(r.deploymentIntervalSeconds),
+    canaryPercentage:
+      r.canaryPercentage != null ? num(r.canaryPercentage) : null,
     nextDeploymentAt: optInstant(r.nextDeploymentAt),
     createdAt: optInstant(r.createdAt),
     startedAt: optInstant(r.startedAt),
@@ -554,6 +556,9 @@ export async function createRollout(
   }
   if (body.deploymentIntervalSeconds != null) {
     payload.deploymentIntervalSeconds = body.deploymentIntervalSeconds
+  }
+  if (body.canaryPercentage != null) {
+    payload.canaryPercentage = body.canaryPercentage
   }
   const res = await fetch(buildUrl('/v1/rollouts'), {
     method: 'POST',
@@ -621,25 +626,6 @@ export async function fetchActiveRollouts(
   const raw = await parseJson<unknown>(res)
   if (!Array.isArray(raw)) return []
   return raw.map(parseRolloutResponse)
-}
-
-/**
- * GET /v1/configs/{configId}/active-rollout — 204 если активного нет.
- */
-export async function fetchActiveRolloutForConfig(
-  configId: string,
-): Promise<RolloutResponse | null> {
-  const res = await fetch(
-    buildUrl(`/v1/configs/${encodeURIComponent(configId)}/active-rollout`),
-    { headers: { Accept: 'application/json' } },
-  )
-  if (res.status === 204) return null
-  if (!res.ok) {
-    const parsed = await parseJsonError(res)
-    throw new ApiError(apiErrorMessage(res.status, parsed), res.status, parsed)
-  }
-  const raw = await parseJson<unknown>(res)
-  return parseRolloutResponse(raw)
 }
 
 /**

@@ -111,9 +111,11 @@ export interface AuditSearchResult {
 /** Тело POST /v1/rollouts (CreateRolloutRequest.java). */
 export interface CreateRolloutRequest {
   configId: string
-  type: 'instant' | 'gradual'
+  type: 'instant' | 'gradual' | 'canary'
   totalDeployments?: number
   deploymentIntervalSeconds?: number
+  /** Только для type=canary, 1–99. */
+  canaryPercentage?: number
 }
 
 /** Ответ rollout-эндпоинтов (RolloutResponse.java). */
@@ -127,6 +129,7 @@ export interface RolloutResponse {
   totalDeployments: number
   currentDeployment: number
   deploymentIntervalSeconds: number
+  canaryPercentage?: number | null
   nextDeploymentAt?: string | null
   createdAt?: string | null
   startedAt?: string | null

@@ -11,12 +11,12 @@ import {
   createOrUpdateConfig,
   createRollout,
   deployNextRollout,
-  fetchActiveRolloutForConfig,
   fetchConfigsForEnvironment,
+  fetchRolloutsForConfig,
   rollbackRollout,
   stopRollout,
 } from '../api/client'
-import type { RolloutResponse, ServiceConfigRow } from '../api/types'
+import type { CreateRolloutRequest, RolloutResponse, ServiceConfigRow } from '../api/types'
 import { configsListPath, versionHistoryPath } from './configPaths'
 
 function isActiveRolloutStatus(status: string): boolean {
@@ -105,10 +105,30 @@ function ConfigFormShell(props: {
 
 /** Параметры из модалки «Сохранить и доставить». */
 export type DeliverRolloutParams = {
-  type: 'instant' | 'gradual'
+  type: 'instant' | 'gradual' | 'canary'
   totalDeployments?: number
   deploymentIntervalSeconds?: number
+  canaryPercentage?: number
   author?: string
+}
+
+export function buildCreateRolloutRequest(
+  configId: string,
+  params: DeliverRolloutParams,
+): CreateRolloutRequest {
+  return {
+    configId,
+    type: params.type,
+    ...(params.type === 'gradual'
+      ? {
+          totalDeployments: params.totalDeployments,
+          deploymentIntervalSeconds: params.deploymentIntervalSeconds,
+        }
+      : {}),
+    ...(params.type === 'canary'
+      ? { canaryPercentage: params.canaryPercentage }
+      : {}),
+  }
 }
 
 export function DeliverRolloutDialog(props: {
@@ -138,11 +158,13 @@ export function DeliverRolloutDialog(props: {
   const radioName = useId()
   const stepsId = useId()
   const intervalId = useId()
+  const canaryPctId = useId()
   const authorId = useId()
 
-  const [deliverType, setDeliverType] = useState<'instant' | 'gradual'>('instant')
+  const [deliverType, setDeliverType] = useState<DeliverRolloutParams['type']>('instant')
   const [deliverTotalDeployments, setDeliverTotalDeployments] = useState(4)
   const [deliverInterval, setDeliverInterval] = useState(60)
+  const [deliverCanaryPercentage, setDeliverCanaryPercentage] = useState(5)
   const [deliverAuthor, setDeliverAuthor] = useState('')
 
   if (!open) return null
@@ -155,6 +177,9 @@ export function DeliverRolloutDialog(props: {
             totalDeployments: deliverTotalDeployments,
             deploymentIntervalSeconds: deliverInterval,
           }
+        : {}),
+      ...(deliverType === 'canary'
+        ? { canaryPercentage: deliverCanaryPercentage }
         : {}),
       ...(deliverAuthor.trim() !== '' ? { author: deliverAuthor.trim() } : {}),
     }
@@ -208,6 +233,15 @@ export function DeliverRolloutDialog(props: {
             />{' '}
             Постепенно
           </label>
+          <label className="rollback-dialog__field">
+            <input
+              type="radio"
+              name={radioName}
+              checked={deliverType === 'canary'}
+              onChange={() => setDeliverType('canary')}
+            />{' '}
+            Canary
+          </label>
         </fieldset>
 
         {deliverType === 'gradual' ? (
@@ -242,6 +276,25 @@ export function DeliverRolloutDialog(props: {
               />
             </label>
           </>
+        ) : null}
+
+        {deliverType === 'canary' ? (
+          <label className="rollback-dialog__field" htmlFor={canaryPctId}>
+            <span className="rollback-dialog__label">Доля canary-инстансов, % (1–99)</span>
+            <input
+              id={canaryPctId}
+              className="config-form__input"
+              type="number"
+              min={1}
+              max={99}
+              value={deliverCanaryPercentage}
+              onChange={(ev) =>
+                setDeliverCanaryPercentage(
+                  Math.min(99, Math.max(1, Number.parseInt(ev.target.value, 10) || 1)),
+                )
+              }
+            />
+          </label>
         ) : null}
 
         <label className="rollback-dialog__field" htmlFor={authorId}>
@@ -325,19 +378,9 @@ export function ServiceConfigCreatePage() {
         setDeliverError('У конфигурации нет id — нельзя запустить доставку.')
         return
       }
-      await createRollout(
-        {
-          configId,
-          type: params.type,
-          ...(params.type === 'gradual'
-            ? {
-                totalDeployments: params.totalDeployments,
-                deploymentIntervalSeconds: params.deploymentIntervalSeconds,
-              }
-            : {}),
-        },
-        { author: params.author },
-      )
+      await createRollout(buildCreateRolloutRequest(configId, params), {
+        author: params.author,
+      })
       setDeliverDialogOpen(false)
       navigate(configsListPath(serviceName))
     } catch (err) {
@@ -549,9 +592,11 @@ export function ServiceConfigEditPage() {
     let cancelled = false
     setRolloutLoading(true)
     setRolloutLoadError(null)
-    fetchActiveRolloutForConfig(row.id)
-      .then((r) => {
-        if (!cancelled) setActiveRollout(r)
+    fetchRolloutsForConfig(row.id)
+      .then((list) => {
+        if (!cancelled) {
+          setActiveRollout(list.find((r) => isActiveRolloutStatus(r.status)) ?? null)
+        }
       })
       .catch((e: unknown) => {
         if (!cancelled)
@@ -578,8 +623,8 @@ export function ServiceConfigEditPage() {
     if (found) {
       setValueText(formatPayloadForEditor(found.latestVersion.payload))
       if (found.id) {
-        const ar = await fetchActiveRolloutForConfig(found.id)
-        setActiveRollout(ar)
+        const list = await fetchRolloutsForConfig(found.id)
+        setActiveRollout(list.find((r) => isActiveRolloutStatus(r.status)) ?? null)
       } else {
         setActiveRollout(null)
       }
@@ -640,19 +685,9 @@ export function ServiceConfigEditPage() {
         setDeliverError('У конфигурации нет id — нельзя запустить доставку.')
         return
       }
-      await createRollout(
-        {
-          configId,
-          type: params.type,
-          ...(params.type === 'gradual'
-            ? {
-                totalDeployments: params.totalDeployments,
-                deploymentIntervalSeconds: params.deploymentIntervalSeconds,
-              }
-            : {}),
-        },
-        { author: params.author },
-      )
+      await createRollout(buildCreateRolloutRequest(configId, params), {
+        author: params.author,
+      })
       setDeliverDialogOpen(false)
       navigate(configsListPath(serviceName))
     } catch (err) {
