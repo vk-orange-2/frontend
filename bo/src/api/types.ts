@@ -58,7 +58,7 @@ export interface CreateConfigRequest {
   isSecret?: boolean
 }
 
-/** Тело POST /v1/configs/{id}/rollback (RollbackRequest.java). */
+/** Тело POST /v1/rollouts/config/{configId}/rollback (RollbackRequest.java). */
 export interface RollbackRequest {
   targetVersion: number
   /** Текущая версия конфигурации для оптимистичной блокировки. */

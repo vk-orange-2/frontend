@@ -137,18 +137,11 @@ export function ConfigVersionHistoryPage() {
 
   const [rollbackTarget, setRollbackTarget] = useState<ConfigVersionEntry | null>(null)
   const [rollbackComment, setRollbackComment] = useState('')
-  const [rollbackDeliverType, setRollbackDeliverType] =
-    useState<DeliverRolloutParams['type']>('instant')
-  const [rollbackDeliverTotalDeployments, setRollbackDeliverTotalDeployments] = useState(4)
-  const [rollbackDeliverInterval, setRollbackDeliverInterval] = useState(60)
-  const [rollbackDeliverCanaryPercentage, setRollbackDeliverCanaryPercentage] = useState(5)
-  const [rollbackDeliverAuthor, setRollbackDeliverAuthor] = useState('')
   const [rollbackSubmitting, setRollbackSubmitting] = useState(false)
   const [rollbackError, setRollbackError] = useState<string | null>(null)
   const [rollbackResult, setRollbackResult] = useState<{
     newVersion: number
     fromVersion: number
-    deliveryStarted: boolean
   } | null>(null)
 
   const titleId = useId()
@@ -157,11 +150,6 @@ export function ConfigVersionHistoryPage() {
   const rolloutsPanelId = useId()
   const compareToggleId = useId()
   const comparePanelId = useId()
-  const rollbackDeliverRadioName = useId()
-  const rollbackDeliverStepsId = useId()
-  const rollbackDeliverIntervalId = useId()
-  const rollbackDeliverCanaryPctId = useId()
-  const rollbackDeliverAuthorId = useId()
 
   const refetchAfterRollback = useCallback(
     async (configId: string) => {
@@ -290,104 +278,40 @@ export function ConfigVersionHistoryPage() {
     if (rollbackSubmitting) return
     setRollbackTarget(null)
     setRollbackComment('')
-    setRollbackDeliverType('instant')
-    setRollbackDeliverTotalDeployments(4)
-    setRollbackDeliverInterval(60)
-    setRollbackDeliverCanaryPercentage(5)
-    setRollbackDeliverAuthor('')
     setRollbackError(null)
   }, [rollbackSubmitting])
 
   const confirmRollback = useCallback(async () => {
-    if (!row?.id || !rollbackTarget) return
+    if (!row?.id || !rollbackTarget || !serviceName || !environment || !configKey) return
     setRollbackSubmitting(true)
     setRollbackError(null)
     setRolloutTableError(null)
     const configId = row.id
     const fromVer = rollbackTarget.version
-    let rolledBackVersion: number | null = null
     try {
-      const res = await rollbackConfig(configId, {
+      const rollout = await rollbackConfig(configId, {
         targetVersion: rollbackTarget.version,
         expectedVersion: row.currentVersion,
         comment: rollbackComment.trim() ? rollbackComment.trim() : undefined,
       })
-      rolledBackVersion = res.currentVersion
-      setRow((prev) =>
-        prev
-          ? {
-              ...prev,
-              currentVersion: res.currentVersion,
-              latestVersion: res.latestVersion,
-              updatedAt: res.updatedAt ?? prev.updatedAt,
-            }
-          : null,
-      )
-      await createRollout(
-        buildCreateRolloutRequest(res.id ?? configId, {
-          type: rollbackDeliverType,
-          ...(rollbackDeliverType === 'gradual'
-            ? {
-                totalDeployments: rollbackDeliverTotalDeployments,
-                deploymentIntervalSeconds: rollbackDeliverInterval,
-              }
-            : {}),
-          ...(rollbackDeliverType === 'canary'
-            ? { canaryPercentage: rollbackDeliverCanaryPercentage }
-            : {}),
-        }),
-        {
-          author:
-            rollbackDeliverAuthor.trim() !== ''
-              ? rollbackDeliverAuthor.trim()
-              : undefined,
-        },
-      )
+      const newVersion = rollout.targetVersion
+      const rows = await fetchConfigsForEnvironment(serviceName, environment)
+      const found = rows.find((r) => r.configKey === configKey) ?? null
+      setRow(found)
       await refetchAfterRollback(configId)
       setRolloutsOpen(true)
       setRolloutTableError(null)
-      setRollbackResult({
-        newVersion: res.currentVersion,
-        fromVersion: fromVer,
-        deliveryStarted: true,
-      })
+      setRollbackResult({ newVersion, fromVersion: fromVer })
       setRollbackTarget(null)
       setRollbackComment('')
-      setRollbackDeliverType('instant')
-      setRollbackDeliverTotalDeployments(4)
-      setRollbackDeliverInterval(60)
-      setRollbackDeliverCanaryPercentage(5)
-      setRollbackDeliverAuthor('')
     } catch (e: unknown) {
-      const msg =
+      setRollbackError(
         e instanceof ApiError
           ? e.message
           : e instanceof Error
             ? e.message
-            : 'Не удалось выполнить откат или запустить доставку'
-      if (rolledBackVersion != null) {
-        try {
-          await refetchAfterRollback(configId)
-        } catch {
-          // The rollback already succeeded; keep the rollout error visible.
-        }
-        setRolloutsOpen(true)
-        setRollbackResult({
-          newVersion: rolledBackVersion,
-          fromVersion: fromVer,
-          deliveryStarted: false,
-        })
-        setRollbackTarget(null)
-        setRollbackComment('')
-        setRollbackDeliverType('instant')
-        setRollbackDeliverTotalDeployments(4)
-        setRollbackDeliverInterval(60)
-        setRollbackDeliverCanaryPercentage(5)
-        setRollbackDeliverAuthor('')
-        setRolloutTableError(`Откат выполнен, но доставка не запущена: ${msg}`)
-        return
-      }
-      setRollbackError(msg)
+            : 'Не удалось выполнить откат',
+      )
     } finally {
       setRollbackSubmitting(false)
     }
@@ -395,11 +319,9 @@ export function ConfigVersionHistoryPage() {
     row,
     rollbackTarget,
     rollbackComment,
-    rollbackDeliverType,
-    rollbackDeliverTotalDeployments,
-    rollbackDeliverInterval,
-    rollbackDeliverCanaryPercentage,
-    rollbackDeliverAuthor,
+    serviceName,
+    environment,
+    configKey,
     refetchAfterRollback,
   ])
 
@@ -410,11 +332,6 @@ export function ConfigVersionHistoryPage() {
         setRollbackTarget(null)
         setRollbackError(null)
         setRollbackComment('')
-        setRollbackDeliverType('instant')
-        setRollbackDeliverTotalDeployments(4)
-        setRollbackDeliverInterval(60)
-        setRollbackDeliverCanaryPercentage(5)
-        setRollbackDeliverAuthor('')
       }
     }
     document.addEventListener('keydown', onKey)
@@ -427,11 +344,6 @@ export function ConfigVersionHistoryPage() {
       setRow(null)
       setVersions(null)
       setLoadError(null)
-      setRollbackDeliverType('instant')
-      setRollbackDeliverTotalDeployments(4)
-      setRollbackDeliverInterval(60)
-      setRollbackDeliverCanaryPercentage(5)
-      setRollbackDeliverAuthor('')
       return
     }
     let cancelled = false
@@ -444,11 +356,6 @@ export function ConfigVersionHistoryPage() {
     setRollbackError(null)
     setRollbackTarget(null)
     setRollbackComment('')
-    setRollbackDeliverType('instant')
-    setRollbackDeliverTotalDeployments(4)
-    setRollbackDeliverInterval(60)
-    setRollbackDeliverCanaryPercentage(5)
-    setRollbackDeliverAuthor('')
 
     let rowAfterFetch: ServiceConfigRow | null = null
 
@@ -823,10 +730,7 @@ export function ConfigVersionHistoryPage() {
           aria-live="polite"
         >
           <p className="success-banner__text">
-            {rollbackResult.deliveryStarted
-              ? 'Откат выполнен и доставка запущена.'
-              : 'Откат выполнен, доставка не запущена.'}{' '}
-            Создана новая версия{' '}
+            Откат выполнен и доставка запущена. Создана новая версия{' '}
             <span className="mono">v{rollbackResult.newVersion}</span> с состоянием payload,
             соответствующим версии <span className="mono">v{rollbackResult.fromVersion}</span>.
           </p>
@@ -908,11 +812,7 @@ export function ConfigVersionHistoryPage() {
                           setRollbackResult(null)
                           setRollbackTarget(v)
                           setRollbackError(null)
-                          setRollbackDeliverType('instant')
-                          setRollbackDeliverTotalDeployments(4)
-                          setRollbackDeliverInterval(60)
-                          setRollbackDeliverCanaryPercentage(5)
-                          setRollbackDeliverAuthor('')
+                          setRollbackComment('')
                         }}
                       >
                         Откатить к этой версии
@@ -979,8 +879,8 @@ export function ConfigVersionHistoryPage() {
               В истории появится <strong>новая версия</strong>: payload конфигурации совпадёт
               с содержимым <span className="mono">v{rollbackTarget.version}</span>. Сейчас
               на сервере зафиксирована <span className="mono">v{row.currentVersion}</span> —
-              при расхождении запрос отклонится, обновите страницу. После отката будет
-              запущена доставка новой версии.
+              при расхождении запрос отклонится, обновите страницу. Откат сразу запустит
+              мгновенную доставку новой версии.
             </p>
             {rollbackError ? (
               <p className="error-banner rollback-dialog__err" role="alert">
@@ -995,117 +895,6 @@ export function ConfigVersionHistoryPage() {
                 onChange={(e) => setRollbackComment(e.target.value)}
                 rows={2}
                 disabled={rollbackSubmitting}
-              />
-            </label>
-            <fieldset className="rollback-dialog__fieldset-plain">
-              <legend className="rollback-dialog__label">Тип доставки</legend>
-              <label className="rollback-dialog__field">
-                <input
-                  type="radio"
-                  name={rollbackDeliverRadioName}
-                  checked={rollbackDeliverType === 'instant'}
-                  disabled={rollbackSubmitting}
-                  onChange={() => setRollbackDeliverType('instant')}
-                />{' '}
-                Мгновенно всем
-              </label>
-              <label className="rollback-dialog__field">
-                <input
-                  type="radio"
-                  name={rollbackDeliverRadioName}
-                  checked={rollbackDeliverType === 'gradual'}
-                  disabled={rollbackSubmitting}
-                  onChange={() => setRollbackDeliverType('gradual')}
-                />{' '}
-                Постепенно
-              </label>
-              <label className="rollback-dialog__field">
-                <input
-                  type="radio"
-                  name={rollbackDeliverRadioName}
-                  checked={rollbackDeliverType === 'canary'}
-                  disabled={rollbackSubmitting}
-                  onChange={() => setRollbackDeliverType('canary')}
-                />{' '}
-                Canary
-              </label>
-            </fieldset>
-
-            {rollbackDeliverType === 'gradual' ? (
-              <>
-                <label className="rollback-dialog__field" htmlFor={rollbackDeliverStepsId}>
-                  <span className="rollback-dialog__label">Число этапов (1–100)</span>
-                  <input
-                    id={rollbackDeliverStepsId}
-                    className="config-form__input"
-                    type="number"
-                    min={1}
-                    max={100}
-                    value={rollbackDeliverTotalDeployments}
-                    disabled={rollbackSubmitting}
-                    onChange={(ev) =>
-                      setRollbackDeliverTotalDeployments(
-                        Math.min(
-                          100,
-                          Math.max(1, Number.parseInt(ev.target.value, 10) || 1),
-                        ),
-                      )
-                    }
-                  />
-                </label>
-                <label className="rollback-dialog__field" htmlFor={rollbackDeliverIntervalId}>
-                  <span className="rollback-dialog__label">Интервал между этапами (сек)</span>
-                  <input
-                    id={rollbackDeliverIntervalId}
-                    className="config-form__input"
-                    type="number"
-                    min={0}
-                    value={rollbackDeliverInterval}
-                    disabled={rollbackSubmitting}
-                    onChange={(ev) =>
-                      setRollbackDeliverInterval(
-                        Math.max(0, Number.parseInt(ev.target.value, 10) || 0),
-                      )
-                    }
-                  />
-                </label>
-              </>
-            ) : null}
-
-            {rollbackDeliverType === 'canary' ? (
-              <label className="rollback-dialog__field" htmlFor={rollbackDeliverCanaryPctId}>
-                <span className="rollback-dialog__label">Доля canary-инстансов, % (1–99)</span>
-                <input
-                  id={rollbackDeliverCanaryPctId}
-                  className="config-form__input"
-                  type="number"
-                  min={1}
-                  max={99}
-                  value={rollbackDeliverCanaryPercentage}
-                  disabled={rollbackSubmitting}
-                  onChange={(ev) =>
-                    setRollbackDeliverCanaryPercentage(
-                      Math.min(
-                        99,
-                        Math.max(1, Number.parseInt(ev.target.value, 10) || 1),
-                      ),
-                    )
-                  }
-                />
-              </label>
-            ) : null}
-
-            <label className="rollback-dialog__field" htmlFor={rollbackDeliverAuthorId}>
-              <span className="rollback-dialog__label">Автор в журнале (необязательно)</span>
-              <input
-                id={rollbackDeliverAuthorId}
-                className="config-form__input mono"
-                value={rollbackDeliverAuthor}
-                onChange={(ev) => setRollbackDeliverAuthor(ev.target.value)}
-                disabled={rollbackSubmitting}
-                autoComplete="off"
-                spellCheck={false}
-                placeholder="X-Author"
               />
             </label>
             <div className="rollback-dialog__actions">
@@ -1125,7 +914,7 @@ export function ConfigVersionHistoryPage() {
                 }}
                 disabled={rollbackSubmitting}
               >
-                {rollbackSubmitting ? 'Выполняется…' : 'Откатить и запустить'}
+                {rollbackSubmitting ? 'Выполняется…' : 'Откатить'}
               </button>
             </div>
           </div>

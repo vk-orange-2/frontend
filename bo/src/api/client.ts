@@ -327,20 +327,18 @@ export async function fetchConfigVersionHistory(
 }
 
 /**
- * POST /v1/configs/{configId}/rollback — откат к payload выбранной версии (новая версия в истории).
+ * POST /v1/rollouts/config/{configId}/rollback — откат к версии и instant rollout.
  */
 export async function rollbackConfig(
   configId: string,
   body: RollbackRequest,
-): Promise<ConfigResponse> {
+  options?: { author?: string },
+): Promise<RolloutResponse> {
   const res = await fetch(
-    buildUrl(`/v1/configs/${encodeURIComponent(configId)}/rollback`),
+    buildUrl(`/v1/rollouts/config/${encodeURIComponent(configId)}/rollback`),
     {
       method: 'POST',
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
+      headers: rolloutPostHeaders(options?.author),
       body: JSON.stringify({
         targetVersion: body.targetVersion,
         expectedVersion: body.expectedVersion,
@@ -351,17 +349,11 @@ export async function rollbackConfig(
     },
   )
   if (!res.ok) {
-    const bodyText = await res.text()
-    let parsed: unknown
-    try {
-      parsed = bodyText ? JSON.parse(bodyText) : undefined
-    } catch {
-      parsed = bodyText
-    }
+    const parsed = await parseJsonError(res)
     throw new ApiError(apiErrorMessage(res.status, parsed), res.status, parsed)
   }
   const raw = await parseJson<unknown>(res)
-  return parseConfigResponse(raw)
+  return parseRolloutResponse(raw)
 }
 
 function parseAuditLogEntry(row: unknown): AuditLogEntry {
