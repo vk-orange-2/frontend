@@ -14,14 +14,22 @@ const operationOptions = [
   { value: 'CREATE', label: 'Создание' },
   { value: 'UPDATE', label: 'Обновление' },
   { value: 'DELETE', label: 'Удаление' },
-  { value: 'ROLLBACK', label: 'Откат' },
+  { value: 'ROLLBACK', label: 'Откат версии' },
+  { value: 'ROLLOUT_START', label: 'Запуск доставки' },
+  { value: 'ROLLOUT_STOP', label: 'Остановка доставки' },
+  { value: 'ROLLOUT_COMPLETE', label: 'Завершение доставки' },
+  { value: 'ROLLOUT_ROLLBACK', label: 'Откат доставки' },
 ] as const
 
 const operationLabel: Record<string, string> = {
   CREATE: 'Создание',
   UPDATE: 'Обновление',
   DELETE: 'Удаление',
-  ROLLBACK: 'Откат',
+  ROLLBACK: 'Откат версии',
+  ROLLOUT_START: 'Запуск доставки',
+  ROLLOUT_STOP: 'Остановка доставки',
+  ROLLOUT_COMPLETE: 'Завершение доставки',
+  ROLLOUT_ROLLBACK: 'Откат доставки',
 }
 
 function formatWhen(iso: string): string {
