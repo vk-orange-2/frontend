@@ -17,6 +17,7 @@ import {
   stopRollout,
 } from '../api/client'
 import type { CreateRolloutRequest, RolloutResponse, ServiceConfigRow } from '../api/types'
+import { useBlurValidatedNumberInput } from '../lib/useBlurValidatedNumberInput'
 import { configsListPath, versionHistoryPath } from './configPaths'
 
 function isActiveRolloutStatus(status: string): boolean {
@@ -162,9 +163,20 @@ export function DeliverRolloutDialog(props: {
   const authorId = useId()
 
   const [deliverType, setDeliverType] = useState<DeliverRolloutParams['type']>('instant')
-  const [deliverTotalDeployments, setDeliverTotalDeployments] = useState(4)
-  const [deliverInterval, setDeliverInterval] = useState(60)
-  const [deliverCanaryPercentage, setDeliverCanaryPercentage] = useState(5)
+  const deliverSteps = useBlurValidatedNumberInput(4, {
+    min: 1,
+    max: 100,
+    defaultValue: 4,
+  })
+  const deliverIntervalInput = useBlurValidatedNumberInput(60, {
+    min: 0,
+    defaultValue: 60,
+  })
+  const deliverCanaryInput = useBlurValidatedNumberInput(5, {
+    min: 1,
+    max: 99,
+    defaultValue: 5,
+  })
   const [deliverAuthor, setDeliverAuthor] = useState('')
 
   if (!open) return null
@@ -174,12 +186,12 @@ export function DeliverRolloutDialog(props: {
       type: deliverType,
       ...(deliverType === 'gradual'
         ? {
-            totalDeployments: deliverTotalDeployments,
-            deploymentIntervalSeconds: deliverInterval,
+            totalDeployments: deliverSteps.commit(),
+            deploymentIntervalSeconds: deliverIntervalInput.commit(),
           }
         : {}),
       ...(deliverType === 'canary'
-        ? { canaryPercentage: deliverCanaryPercentage }
+        ? { canaryPercentage: deliverCanaryInput.commit() }
         : {}),
       ...(deliverAuthor.trim() !== '' ? { author: deliverAuthor.trim() } : {}),
     }
@@ -251,15 +263,7 @@ export function DeliverRolloutDialog(props: {
               <input
                 id={stepsId}
                 className="config-form__input"
-                type="number"
-                min={1}
-                max={100}
-                value={deliverTotalDeployments}
-                onChange={(ev) =>
-                  setDeliverTotalDeployments(
-                    Math.min(100, Math.max(1, Number.parseInt(ev.target.value, 10) || 1)),
-                  )
-                }
+                {...deliverSteps.inputProps}
               />
             </label>
             <label className="rollback-dialog__field" htmlFor={intervalId}>
@@ -267,12 +271,7 @@ export function DeliverRolloutDialog(props: {
               <input
                 id={intervalId}
                 className="config-form__input"
-                type="number"
-                min={0}
-                value={deliverInterval}
-                onChange={(ev) =>
-                  setDeliverInterval(Math.max(0, Number.parseInt(ev.target.value, 10) || 0))
-                }
+                {...deliverIntervalInput.inputProps}
               />
             </label>
           </>
@@ -284,15 +283,7 @@ export function DeliverRolloutDialog(props: {
             <input
               id={canaryPctId}
               className="config-form__input"
-              type="number"
-              min={1}
-              max={99}
-              value={deliverCanaryPercentage}
-              onChange={(ev) =>
-                setDeliverCanaryPercentage(
-                  Math.min(99, Math.max(1, Number.parseInt(ev.target.value, 10) || 1)),
-                )
-              }
+              {...deliverCanaryInput.inputProps}
             />
           </label>
         ) : null}
