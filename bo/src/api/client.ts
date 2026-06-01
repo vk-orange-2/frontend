@@ -15,7 +15,7 @@ import type {
 } from './types'
 
 /** Совпадает с `server.port` в backend config-server application.yml */
-const DEFAULT_API_BASE = 'http://localhost:8081'
+const DEFAULT_API_BASE = 'http://90.156.215.104:8081'
 
 const API_BASE = (
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ||
