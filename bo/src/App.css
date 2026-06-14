@@ -515,6 +515,17 @@ button.secret-value-reveal.secret-value-reveal--block {
   border-color: var(--accent-border);
 }
 
+.btn--danger {
+  background: rgba(220, 38, 38, 0.1);
+  color: #dc2626;
+  border-color: rgba(220, 38, 38, 0.4);
+}
+
+.btn--danger:hover:not(:disabled) {
+  background: rgba(220, 38, 38, 0.18);
+  border-color: rgba(220, 38, 38, 0.6);
+}
+
 .btn--small {
   padding: 6px 12px;
   font-size: 0.85rem;
